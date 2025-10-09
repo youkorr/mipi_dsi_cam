@@ -21,7 +21,6 @@ CONF_RESET_PIN = "reset_pin"
 CONF_SENSOR = "sensor"
 CONF_LANE = "lane"
 CONF_ADDRESS_SENSOR = "address_sensor"
-CONF_RESOLUTION = "resolution"
 CONF_PIXEL_FORMAT = "pixel_format"
 CONF_FRAMERATE = "framerate"
 CONF_JPEG_QUALITY = "jpeg_quality"
@@ -35,10 +34,6 @@ PIXEL_FORMATS = {
     "RGB565": PIXEL_FORMAT_RGB565,
     "YUV422": PIXEL_FORMAT_YUV422,
     "RAW8": PIXEL_FORMAT_RAW8,
-}
-
-RESOLUTIONS = {
-    "720P": (1280, 720),
 }
 
 AVAILABLE_SENSORS = {}
@@ -101,17 +96,6 @@ def validate_sensor(value):
         )
     return value
 
-def validate_resolution(value):
-    if isinstance(value, str):
-        value_upper = value.upper()
-        if value_upper not in RESOLUTIONS:
-            available = ', '.join(RESOLUTIONS.keys())
-            raise cv.Invalid(
-                f"Résolution '{value}' non supportée. Disponibles: {available}"
-            )
-        return RESOLUTIONS[value_upper]
-    raise cv.Invalid("Le format de résolution doit être une chaîne (ex: '720P')")
-
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MipiDsiCam),
@@ -123,11 +107,10 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_FREQUENCY, default=24000000): cv.int_range(min=6000000, max=40000000),
         cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,
         cv.Required(CONF_SENSOR): validate_sensor,
-        cv.Optional(CONF_LANE, default=1): cv.int_range(min=1, max=4),
-        cv.Optional(CONF_ADDRESS_SENSOR, default=0x36): cv.i2c_address,
-        cv.Optional(CONF_RESOLUTION, default="720P"): validate_resolution,
+        cv.Optional(CONF_LANE): cv.int_range(min=1, max=4),  # Optionnel maintenant
+        cv.Optional(CONF_ADDRESS_SENSOR): cv.i2c_address,  # Optionnel maintenant
         cv.Optional(CONF_PIXEL_FORMAT, default="RGB565"): cv.enum(PIXEL_FORMATS, upper=True),
-        cv.Optional(CONF_FRAMERATE, default=30): cv.int_range(min=1, max=60),
+        cv.Optional(CONF_FRAMERATE): cv.int_range(min=1, max=60),  # Optionnel maintenant
         cv.Optional(CONF_JPEG_QUALITY, default=10): cv.int_range(min=1, max=63),
     }
 ).extend(cv.COMPONENT_SCHEMA).extend(i2c.i2c_device_schema(0x36))
@@ -149,21 +132,29 @@ async def to_code(config):
     
     cg.add(var.set_external_clock_frequency(config[CONF_FREQUENCY]))
     
+    # Récupérer les infos du capteur
     sensor_name = config[CONF_SENSOR]
-    width, height = config[CONF_RESOLUTION]
+    sensor_info = AVAILABLE_SENSORS[sensor_name]['info']
+    
+    # Utiliser la résolution native du capteur
+    width = sensor_info['width']
+    height = sensor_info['height']
+    
+    # Utiliser les paramètres du capteur ou ceux spécifiés par l'utilisateur
+    lane_count = config.get(CONF_LANE, sensor_info['lane_count'])
+    sensor_address = config.get(CONF_ADDRESS_SENSOR, sensor_info['i2c_address'])
+    framerate = config.get(CONF_FRAMERATE, sensor_info['fps'])
     
     cg.add(var.set_sensor_type(sensor_name))
-    cg.add(var.set_sensor_address(config[CONF_ADDRESS_SENSOR]))
-    cg.add(var.set_lane_count(config[CONF_LANE]))
+    cg.add(var.set_sensor_address(sensor_address))
+    cg.add(var.set_lane_count(lane_count))
     cg.add(var.set_resolution(width, height))
-    
-    sensor_info = AVAILABLE_SENSORS[sensor_name]['info']
     cg.add(var.set_bayer_pattern(sensor_info['bayer_pattern']))
     cg.add(var.set_lane_bitrate(sensor_info['lane_bitrate_mbps']))
     
     cg.add(var.set_pixel_format(config[CONF_PIXEL_FORMAT]))
     cg.add(var.set_jpeg_quality(config[CONF_JPEG_QUALITY]))
-    cg.add(var.set_framerate(config[CONF_FRAMERATE]))
+    cg.add(var.set_framerate(framerate))
     
     if CONF_RESET_PIN in config:
         reset_pin = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
@@ -220,9 +211,9 @@ inline ISensorDriver* create_sensor_driver(const std::string& sensor_type, i2c::
     cg.add(cg.RawExpression(f'''
         ESP_LOGI("compile", "Camera configuration:");
         ESP_LOGI("compile", "  Sensor: {sensor_name}");
-        ESP_LOGI("compile", "  Resolution: {width}x{height}");
-        ESP_LOGI("compile", "  Lanes: {config[CONF_LANE]}");
-        ESP_LOGI("compile", "  Address: 0x{config[CONF_ADDRESS_SENSOR]:02X}");
+        ESP_LOGI("compile", "  Resolution: {width}x{height} (native)");
+        ESP_LOGI("compile", "  Lanes: {lane_count}");
+        ESP_LOGI("compile", "  Address: 0x{sensor_address:02X}");
         ESP_LOGI("compile", "  Format: {config[CONF_PIXEL_FORMAT]}");
-        ESP_LOGI("compile", "  FPS: {config[CONF_FRAMERATE]}");
+        ESP_LOGI("compile", "  FPS: {framerate}");
     '''))
