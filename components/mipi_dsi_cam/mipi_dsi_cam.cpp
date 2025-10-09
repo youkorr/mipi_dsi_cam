@@ -2,8 +2,6 @@
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
 
-// Inclusion du code généré pour les drivers
-// Ce fichier sera créé automatiquement par __init__.py
 #include "mipi_dsi_cam_drivers_generated.h"
 
 #ifdef USE_ESP32_VARIANT_ESP32P4
@@ -13,15 +11,10 @@ namespace mipi_dsi_cam {
 
 static const char *const TAG = "mipi_dsi_cam";
 
-// ============================================================================
-// IMPLÉMENTATION MIPI DSI CAM (GÉNÉRIQUE - AUCUNE RÉFÉRENCE AUX SENSORS)
-// ============================================================================
-
 void MipiDsiCam::setup() {
-  ESP_LOGI(TAG, "🎥 Init MIPI Camera");
-  ESP_LOGI(TAG, "   Sensor type: %s", this->sensor_type_.c_str());
+  ESP_LOGI(TAG, "Init MIPI Camera");
+  ESP_LOGI(TAG, "  Sensor type: %s", this->sensor_type_.c_str());
   
-  // 1. Init pins
   if (this->reset_pin_ != nullptr) {
     this->reset_pin_->setup();
     this->reset_pin_->digital_write(false);
@@ -30,57 +23,49 @@ void MipiDsiCam::setup() {
     delay(20);
   }
   
-  // 2. Créer le driver du sensor via factory
   if (!this->create_sensor_driver_()) {
-    ESP_LOGE(TAG, "❌ Driver creation failed");
+    ESP_LOGE(TAG, "Driver creation failed");
     this->mark_failed();
     return;
   }
   
-  // 3. Init sensor
   if (!this->init_sensor_()) {
-    ESP_LOGE(TAG, "❌ Sensor init failed");
+    ESP_LOGE(TAG, "Sensor init failed");
     this->mark_failed();
     return;
   }
   
-  // 4. Init LDO
   if (!this->init_ldo_()) {
-    ESP_LOGE(TAG, "❌ LDO init failed");
+    ESP_LOGE(TAG, "LDO init failed");
     this->mark_failed();
     return;
   }
   
-  // 5. Init CSI
   if (!this->init_csi_()) {
-    ESP_LOGE(TAG, "❌ CSI init failed");
+    ESP_LOGE(TAG, "CSI init failed");
     this->mark_failed();
     return;
   }
   
-  // 6. Init ISP
   if (!this->init_isp_()) {
-    ESP_LOGE(TAG, "❌ ISP init failed");
+    ESP_LOGE(TAG, "ISP init failed");
     this->mark_failed();
     return;
   }
   
-  // 7. Allouer buffers
   if (!this->allocate_buffer_()) {
-    ESP_LOGE(TAG, "❌ Buffer alloc failed");
+    ESP_LOGE(TAG, "Buffer alloc failed");
     this->mark_failed();
     return;
   }
   
   this->initialized_ = true;
-  ESP_LOGI(TAG, "✅ Camera ready (%ux%u)", this->width_, this->height_);
+  ESP_LOGI(TAG, "Camera ready (%ux%u)", this->width_, this->height_);
 }
 
 bool MipiDsiCam::create_sensor_driver_() {
   ESP_LOGI(TAG, "Creating driver for: %s", this->sensor_type_.c_str());
   
-  // Appel à la factory function fournie par le code généré
-  // Cette fonction est implémentée dans le code généré par chaque sensor
   this->sensor_driver_ = create_sensor_driver(this->sensor_type_, this);
   
   if (this->sensor_driver_ == nullptr) {
@@ -88,7 +73,7 @@ bool MipiDsiCam::create_sensor_driver_() {
     return false;
   }
   
-  ESP_LOGI(TAG, "✓ Driver created for: %s", this->sensor_driver_->get_name());
+  ESP_LOGI(TAG, "Driver created for: %s", this->sensor_driver_->get_name());
   return true;
 }
 
@@ -100,19 +85,17 @@ bool MipiDsiCam::init_sensor_() {
   
   ESP_LOGI(TAG, "Init sensor: %s", this->sensor_driver_->get_name());
   
-  // Récupérer les métadonnées du sensor
   this->width_ = this->sensor_driver_->get_width();
   this->height_ = this->sensor_driver_->get_height();
   this->lane_count_ = this->sensor_driver_->get_lane_count();
   this->bayer_pattern_ = this->sensor_driver_->get_bayer_pattern();
   this->lane_bitrate_mbps_ = this->sensor_driver_->get_lane_bitrate_mbps();
   
-  ESP_LOGI(TAG, "   Resolution: %ux%u", this->width_, this->height_);
-  ESP_LOGI(TAG, "   Lanes: %u", this->lane_count_);
-  ESP_LOGI(TAG, "   Bayer: %u", this->bayer_pattern_);
-  ESP_LOGI(TAG, "   Bitrate: %u Mbps", this->lane_bitrate_mbps_);
+  ESP_LOGI(TAG, "  Resolution: %ux%u", this->width_, this->height_);
+  ESP_LOGI(TAG, "  Lanes: %u", this->lane_count_);
+  ESP_LOGI(TAG, "  Bayer: %u", this->bayer_pattern_);
+  ESP_LOGI(TAG, "  Bitrate: %u Mbps", this->lane_bitrate_mbps_);
   
-  // Vérifier l'ID
   uint16_t pid = 0;
   esp_err_t ret = this->sensor_driver_->read_id(&pid);
   if (ret != ESP_OK) {
@@ -126,20 +109,18 @@ bool MipiDsiCam::init_sensor_() {
     return false;
   }
   
-  ESP_LOGI(TAG, "✓ Sensor ID: 0x%04X", pid);
+  ESP_LOGI(TAG, "Sensor ID: 0x%04X", pid);
   
-  // Initialiser le sensor
   ret = this->sensor_driver_->init();
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "Sensor init failed: %d", ret);
     return false;
   }
   
-  ESP_LOGI(TAG, "✓ Sensor initialized");
+  ESP_LOGI(TAG, "Sensor initialized");
   
-  // Attendre que le sensor se stabilise (exposition, gain, etc.)
   delay(200);
-  ESP_LOGI(TAG, "✓ Sensor stabilized");
+  ESP_LOGI(TAG, "Sensor stabilized");
   
   return true;
 }
@@ -158,7 +139,7 @@ bool MipiDsiCam::init_ldo_() {
     return false;
   }
   
-  ESP_LOGI(TAG, "✓ LDO OK (2.5V)");
+  ESP_LOGI(TAG, "LDO OK (2.5V)");
   return true;
 }
 
@@ -183,7 +164,6 @@ bool MipiDsiCam::init_csi_() {
     return false;
   }
   
-  // Callbacks
   esp_cam_ctlr_evt_cbs_t callbacks = {
     .on_get_new_trans = MipiDsiCam::on_csi_new_frame_,
     .on_trans_finished = MipiDsiCam::on_csi_frame_done_,
@@ -201,7 +181,7 @@ bool MipiDsiCam::init_csi_() {
     return false;
   }
   
-  ESP_LOGI(TAG, "✓ CSI OK (queue_items=10 pour meilleur buffering)");
+  ESP_LOGI(TAG, "CSI OK");
   return true;
 }
 
@@ -236,12 +216,12 @@ bool MipiDsiCam::init_isp_() {
     return false;
   }
   
-  ESP_LOGI(TAG, "✓ ISP OK (bayer=%u, luminosité/contraste via sensor)", this->bayer_pattern_);
+  ESP_LOGI(TAG, "ISP OK");
   return true;
 }
 
 bool MipiDsiCam::allocate_buffer_() {
-  this->frame_buffer_size_ = this->width_ * this->height_ * 2;  // RGB565
+  this->frame_buffer_size_ = this->width_ * this->height_ * 2;
   
   this->frame_buffers_[0] = (uint8_t*)heap_caps_aligned_alloc(
     64, this->frame_buffer_size_, MALLOC_CAP_SPIRAM
@@ -258,7 +238,7 @@ bool MipiDsiCam::allocate_buffer_() {
   
   this->current_frame_buffer_ = this->frame_buffers_[0];
   
-  ESP_LOGI(TAG, "✓ Buffers: 2x%u bytes", this->frame_buffer_size_);
+  ESP_LOGI(TAG, "Buffers: 2x%u bytes", this->frame_buffer_size_);
   return true;
 }
 
@@ -296,11 +276,9 @@ bool MipiDsiCam::start_streaming() {
   
   ESP_LOGI(TAG, "Start streaming");
   
-  // Reset compteurs
   this->total_frames_received_ = 0;
   this->last_frame_log_time_ = millis();
   
-  // Démarrer sensor
   if (this->sensor_driver_) {
     esp_err_t ret = this->sensor_driver_->start_stream();
     if (ret != ESP_OK) {
@@ -310,7 +288,6 @@ bool MipiDsiCam::start_streaming() {
     delay(100);
   }
   
-  // Démarrer CSI
   esp_err_t ret = esp_cam_ctlr_start(this->csi_handle_);
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "CSI start failed: %d", ret);
@@ -318,7 +295,7 @@ bool MipiDsiCam::start_streaming() {
   }
   
   this->streaming_ = true;
-  ESP_LOGI(TAG, "✅ Streaming active");
+  ESP_LOGI(TAG, "Streaming active");
   return true;
 }
 
@@ -334,7 +311,7 @@ bool MipiDsiCam::stop_streaming() {
   }
   
   this->streaming_ = false;
-  ESP_LOGI(TAG, "⏹ Streaming stopped");
+  ESP_LOGI(TAG, "Streaming stopped");
   return true;
 }
 
@@ -354,9 +331,6 @@ bool MipiDsiCam::capture_frame() {
 }
 
 void MipiDsiCam::loop() {
-  // Géré par callbacks ISR
-  
-  // Debug: Logger le FPS du sensor ET le flag frame_ready
   if (this->streaming_) {
     static uint32_t ready_count = 0;
     static uint32_t not_ready_count = 0;
@@ -372,7 +346,7 @@ void MipiDsiCam::loop() {
       float sensor_fps = this->total_frames_received_ / 3.0f;
       float ready_rate = (float)ready_count / (float)(ready_count + not_ready_count) * 100.0f;
       
-      ESP_LOGI(TAG, "📷 Sensor: %.1f fps | frame_ready: %.1f%% du temps", 
+      ESP_LOGI(TAG, "Sensor: %.1f fps | frame_ready: %.1f%%", 
                sensor_fps, ready_rate);
       
       this->total_frames_received_ = 0;
