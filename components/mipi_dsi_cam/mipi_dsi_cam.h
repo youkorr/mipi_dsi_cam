@@ -17,22 +17,16 @@ extern "C" {
 namespace esphome {
 namespace mipi_dsi_cam {
 
-// Enum pour format pixel
 enum PixelFormat {
   PIXEL_FORMAT_RGB565 = 0,
   PIXEL_FORMAT_YUV422 = 1,
   PIXEL_FORMAT_RAW8 = 2,
 };
 
-// ============================================================================
-// INTERFACE ABSTRAITE POUR LES DRIVERS DE SENSORS
-// Chaque sensor auto-généré implémente cette interface
-// ============================================================================
 class ISensorDriver {
 public:
   virtual ~ISensorDriver() = default;
   
-  // Métadonnées
   virtual const char* get_name() const = 0;
   virtual uint16_t get_pid() const = 0;
   virtual uint8_t get_i2c_address() const = 0;
@@ -43,7 +37,6 @@ public:
   virtual uint16_t get_height() const = 0;
   virtual uint8_t get_fps() const = 0;
   
-  // Opérations
   virtual esp_err_t init() = 0;
   virtual esp_err_t read_id(uint16_t* pid) = 0;
   virtual esp_err_t start_stream() = 0;
@@ -54,10 +47,6 @@ public:
   virtual esp_err_t read_register(uint16_t reg, uint8_t* value) = 0;
 };
 
-// ============================================================================
-// CLASSE PRINCIPALE - RÉCEPTACLE GÉNÉRIQUE
-// Ne contient AUCUNE référence aux sensors spécifiques
-// ============================================================================
 class MipiDsiCam : public Component, public i2c::I2CDevice {
  public:
   void setup() override;
@@ -65,7 +54,6 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::DATA; }
 
-  // Configuration
   void set_name(const std::string &name) { this->name_ = name; }
   void set_external_clock_pin(uint8_t pin) { this->external_clock_pin_ = pin; }
   void set_external_clock_frequency(uint32_t freq) { this->external_clock_frequency_ = freq; }
@@ -80,25 +68,21 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   void set_jpeg_quality(uint8_t quality) { this->jpeg_quality_ = quality; }
   void set_framerate(uint8_t fps) { this->framerate_ = fps; }
 
-  // Opérations caméra
   bool capture_frame();
   bool start_streaming();
   bool stop_streaming();
   bool is_streaming() const { return this->streaming_; }
   
-  // Accès données
   uint8_t* get_image_data() { return this->current_frame_buffer_; }
   size_t get_image_size() const { return this->frame_buffer_size_; }
   uint16_t get_image_width() const { return this->width_; }
   uint16_t get_image_height() const { return this->height_; }
 
  protected:
-  // Configuration matérielle
   uint8_t external_clock_pin_{36};
   uint32_t external_clock_frequency_{24000000};
   GPIOPin *reset_pin_{nullptr};
   
-  // Configuration sensor (depuis le YAML)
   std::string sensor_type_{""};
   uint8_t sensor_address_{0x36};
   uint8_t lane_count_{1};
@@ -107,28 +91,23 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   uint16_t width_{1280};
   uint16_t height_{720};
   
-  // Configuration format
   std::string name_{"MIPI Camera"};
   PixelFormat pixel_format_{PIXEL_FORMAT_RGB565};
   uint8_t jpeg_quality_{10};
   uint8_t framerate_{30};
 
-  // État
   bool initialized_{false};
   bool streaming_{false};
   bool frame_ready_{false};
   
-  // Debug: compteurs de frames
   uint32_t total_frames_received_{0};
   uint32_t last_frame_log_time_{0};
   
-  // Buffers
   uint8_t *frame_buffers_[2]{nullptr, nullptr};
   uint8_t *current_frame_buffer_{nullptr};
   size_t frame_buffer_size_{0};
   uint8_t buffer_index_{0};
   
-  // Driver du sensor (créé dynamiquement via factory)
   ISensorDriver *sensor_driver_{nullptr};
   
 #ifdef USE_ESP32_VARIANT_ESP32P4
