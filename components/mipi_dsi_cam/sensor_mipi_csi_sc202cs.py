@@ -149,15 +149,15 @@ INIT_SEQUENCE = [
     (0x393d, 0x01, 0),
     (0x393e, 0xc0, 0),
     (0x39dd, 0x41, 0),
-    # AUGMENTATION DE L'EXPOSITION PAR DÉFAUT pour image plus claire
-    # Exposition 0x9C0 (2496) au lieu de 0x4DC (1244) = 2x plus lumineux
+    # FORTE AUGMENTATION DE L'EXPOSITION pour image bien claire
+    # Exposition 0xF00 (3840) = 3x plus lumineux que défaut
     (0x3e00, 0x00, 0),
-    (0x3e01, 0x9c, 0),  # Modifié de 0x4d à 0x9c
-    (0x3e02, 0x00, 0),  # Modifié de 0xc0 à 0x00
-    # Gain initial augmenté (index ~16 au lieu de 0) pour plus de luminosité
-    (0x3e07, 0xc0, 0),  # digital fine gain augmenté
-    (0x3e06, 0x00, 0),  # digital coarse gain
-    (0x3e09, 0x00, 0),  # analog gain
+    (0x3e01, 0xf0, 0),  # Augmenté à 0xF0 pour plus de lumière
+    (0x3e02, 0x00, 0),
+    # Gain initial fortement augmenté pour environnements sombres
+    (0x3e07, 0xf0, 0),  # digital fine gain = MAX de la plage 1x
+    (0x3e06, 0x01, 0),  # digital coarse gain activé (2x)
+    (0x3e09, 0x01, 0),  # analog gain 2x
     (0x4509, 0x28, 0),
     (0x450d, 0x61, 0),
     # IMPORTANT: Ces deux écritures successives sont nécessaires (du driver officiel)
@@ -305,7 +305,7 @@ public:
     {SENSOR_INFO['name'].upper()}Driver(esphome::i2c::I2CDevice* i2c) : i2c_(i2c) {{}}
     
     esp_err_t init() {{
-        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} with BRIGHT exposure settings");
+        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} with VERY BRIGHT exposure settings");
         
         for (size_t i = 0; i < sizeof({SENSOR_INFO['name']}_init_sequence) / sizeof({SENSOR_INFO['name'].upper()}InitRegister); i++) {{
             const auto& reg = {SENSOR_INFO['name']}_init_sequence[i];
@@ -321,7 +321,7 @@ public:
             }}
         }}
         
-        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized - exposure=0x9C0 (BRIGHT), gain=0xC0");
+        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized - exposure=0xF00 (VERY BRIGHT), gain=4x");
         return ESP_OK;
     }}
     
