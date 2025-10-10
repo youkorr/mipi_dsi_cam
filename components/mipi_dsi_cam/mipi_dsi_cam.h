@@ -55,7 +55,7 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   float get_setup_priority() const override { return setup_priority::DATA; }
 
   void set_name(const std::string &name) { this->name_ = name; }
-  void set_external_clock_pin(int8_t pin) { this->external_clock_pin_ = pin; }
+  void set_external_clock_pin(uint8_t pin) { this->external_clock_pin_ = pin; }
   void set_external_clock_frequency(uint32_t freq) { this->external_clock_frequency_ = freq; }
   void set_reset_pin(GPIOPin *pin) { this->reset_pin_ = pin; }
   void set_sensor_type(const std::string &type) { this->sensor_type_ = type; }
@@ -79,7 +79,7 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   uint16_t get_image_height() const { return this->height_; }
 
  protected:
-  int8_t external_clock_pin_{-1};  // -1 = pas d'horloge externe
+  uint8_t external_clock_pin_{36};
   uint32_t external_clock_frequency_{24000000};
   GPIOPin *reset_pin_{nullptr};
   
