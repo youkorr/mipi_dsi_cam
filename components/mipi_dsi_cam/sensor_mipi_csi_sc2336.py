@@ -374,13 +374,13 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        // Écrire l'adresse du registre puis lire avec repeated start
-        auto err = i2c_->writev(addr, 2);
+        // Écrire l'adresse sans STOP bit, puis lire avec STOP bit
+        auto err = i2c_->write(addr, 2, false);  // false = pas de STOP
         if (err != esphome::i2c::ERROR_OK) {{
             return ESP_FAIL;
         }}
         
-        err = i2c_->readv(value, 1);
+        err = i2c_->read(value, 1);  // avec STOP automatique
         return (err == esphome::i2c::ERROR_OK) ? ESP_OK : ESP_FAIL;
     }}
     
