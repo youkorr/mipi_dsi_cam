@@ -116,14 +116,28 @@ def validate_resolution(value):
             )
     raise cv.Invalid("Le format de résolution doit être '720P' ou '800x640'")
 
+def validate_external_clock_pin(value):
+    """Valide le pin d'horloge externe - accepte none, false, ou un GPIO valide"""
+    if value is None or value is False:
+        return None
+    if isinstance(value, str):
+        value_lower = value.lower()
+        if value_lower in ["none", "false"]:
+            return None
+    # Si ce n'est ni None ni false, valider comme pin normal
+    return value
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MipiDsiCam),
         cv.Optional(CONF_NAME, default="MIPI Camera"): cv.string,
-        cv.Optional(CONF_EXTERNAL_CLOCK_PIN): cv.Any(
-            cv.int_range(min=0, max=50),
-            pins.internal_gpio_output_pin_schema,
-            None
+        cv.Optional(CONF_EXTERNAL_CLOCK_PIN): cv.All(
+            validate_external_clock_pin,
+            cv.Any(
+                None,
+                cv.int_range(min=0, max=50),
+                pins.internal_gpio_output_pin_schema
+            )
         ),
         cv.Optional(CONF_FREQUENCY, default=24000000): cv.int_range(min=6000000, max=40000000),
         cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,
@@ -241,7 +255,7 @@ inline ISensorDriver* create_sensor_driver(const std::string& sensor_type, i2c::
     cg.add_build_flag("-DUSE_ESP32_VARIANT_ESP32P4")
     
     # Message de log pour la configuration
-    ext_clock_msg = "none" if (CONF_EXTERNAL_CLOCK_PIN not in config or config[CONF_EXTERNAL_CLOCK_PIN] is None) else str(config.get(CONF_EXTERNAL_CLOCK_PIN))
+    ext_clock_msg = "disabled" if (CONF_EXTERNAL_CLOCK_PIN not in config or config[CONF_EXTERNAL_CLOCK_PIN] is None) else str(config.get(CONF_EXTERNAL_CLOCK_PIN))
     
     cg.add(cg.RawExpression(f'''
         ESP_LOGI("compile", "Camera configuration:");
