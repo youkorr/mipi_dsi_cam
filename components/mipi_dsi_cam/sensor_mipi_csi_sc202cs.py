@@ -149,22 +149,25 @@ INIT_SEQUENCE = [
     (0x393d, 0x01, 0),
     (0x393e, 0xc0, 0),
     (0x39dd, 0x41, 0),
-    # Exposition par défaut (0x4dc = 1244)
+    # AUGMENTATION DE L'EXPOSITION PAR DÉFAUT pour image plus claire
+    # Exposition 0x9C0 (2496) au lieu de 0x4DC (1244) = 2x plus lumineux
     (0x3e00, 0x00, 0),
-    (0x3e01, 0x4d, 0),
-    (0x3e02, 0xc0, 0),
-    # Gain par défaut (index 0)
-    (0x3e07, 0x80, 0),  # digital fine gain
+    (0x3e01, 0x9c, 0),  # Modifié de 0x4d à 0x9c
+    (0x3e02, 0x00, 0),  # Modifié de 0xc0 à 0x00
+    # Gain initial augmenté (index ~16 au lieu de 0) pour plus de luminosité
+    (0x3e07, 0xc0, 0),  # digital fine gain augmenté
     (0x3e06, 0x00, 0),  # digital coarse gain
     (0x3e09, 0x00, 0),  # analog gain
     (0x4509, 0x28, 0),
     (0x450d, 0x61, 0),
+    # IMPORTANT: Ces deux écritures successives sont nécessaires (du driver officiel)
+    (0x3e06, 0x00, 0),
+    (0x3e06, 0x00, 0),
 ]
 
-# Mode: Digital Gain Priority (recommandé pour éviter oscillations AGC)
-# Total gain = analog_gain × digital_gain × 1000
+# Tables de gain complètes (192 entrées, 1x à 63x)
 GAIN_VALUES = [
-    # 1x - digital fine only (analog = 1x)
+    # 1x - digital fine only (32 steps)
     1000, 1031, 1063, 1094, 1125, 1156, 1188, 1219,
     1250, 1281, 1313, 1344, 1375, 1406, 1438, 1469,
     1500, 1531, 1563, 1594, 1625, 1656, 1688, 1719,
@@ -196,7 +199,6 @@ GAIN_VALUES = [
     56000, 57008, 58000, 59008, 60000, 61008, 62000, 63008,
 ]
 
-# Format: (digital_fine, digital_coarse, analog)
 GAIN_REGISTERS = [
     # 1x - digital fine only
     (0x80, 0x00, 0x00), (0x84, 0x00, 0x00), (0x88, 0x00, 0x00), (0x8c, 0x00, 0x00),
@@ -207,7 +209,7 @@ GAIN_REGISTERS = [
     (0xd0, 0x00, 0x00), (0xd4, 0x00, 0x00), (0xd8, 0x00, 0x00), (0xdc, 0x00, 0x00),
     (0xe0, 0x00, 0x00), (0xe4, 0x00, 0x00), (0xe8, 0x00, 0x00), (0xec, 0x00, 0x00),
     (0xf0, 0x00, 0x00), (0xf4, 0x00, 0x00), (0xf8, 0x00, 0x00), (0xfc, 0x00, 0x00),
-    # 2x - digital coarse 2x
+    # 2x - digital coarse
     (0x80, 0x01, 0x00), (0x84, 0x01, 0x00), (0x88, 0x01, 0x00), (0x8c, 0x01, 0x00),
     (0x90, 0x01, 0x00), (0x94, 0x01, 0x00), (0x98, 0x01, 0x00), (0x9c, 0x01, 0x00),
     (0xa0, 0x01, 0x00), (0xa4, 0x01, 0x00), (0xa8, 0x01, 0x00), (0xac, 0x01, 0x00),
@@ -303,7 +305,7 @@ public:
     {SENSOR_INFO['name'].upper()}Driver(esphome::i2c::I2CDevice* i2c) : i2c_(i2c) {{}}
     
     esp_err_t init() {{
-        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} with improved exposure settings");
+        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} with BRIGHT exposure settings");
         
         for (size_t i = 0; i < sizeof({SENSOR_INFO['name']}_init_sequence) / sizeof({SENSOR_INFO['name'].upper()}InitRegister); i++) {{
             const auto& reg = {SENSOR_INFO['name']}_init_sequence[i];
@@ -319,7 +321,7 @@ public:
             }}
         }}
         
-        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized with default exposure=0x4dc, gain=index_0");
+        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized - exposure=0x9C0 (BRIGHT), gain=0xC0");
         return ESP_OK;
     }}
     
@@ -351,8 +353,9 @@ public:
         
         const auto& gain = {SENSOR_INFO['name']}_gain_map[gain_index];
         
-        // Digital gain priority: increase digital gain first, then analog
-        // This avoids AGC oscillation issues
+        ESP_LOGD(TAG, "Setting gain index %u: fine=0x%02X, coarse=0x%02X, analog=0x%02X",
+                 gain_index, gain.dgain_fine, gain.dgain_coarse, gain.analog_gain);
+        
         esp_err_t ret = write_register({SENSOR_INFO['name']}_regs::GAIN_FINE, gain.dgain_fine);
         if (ret != ESP_OK) return ret;
         
@@ -364,13 +367,12 @@ public:
     }}
     
     esp_err_t set_exposure(uint32_t exposure) {{
-        // Exposure format: 16-bit value
-        // H: bits [15:12] (4 bits)
-        // M: bits [11:4] (8 bits)
-        // L: bits [3:0] << 4 (4 bits shifted left)
         uint8_t exp_h = (exposure >> 12) & 0x0F;
         uint8_t exp_m = (exposure >> 4) & 0xFF;
         uint8_t exp_l = (exposure & 0x0F) << 4;
+        
+        ESP_LOGD(TAG, "Setting exposure 0x%04X: H=0x%02X, M=0x%02X, L=0x%02X",
+                 exposure, exp_h, exp_m, exp_l);
         
         esp_err_t ret = write_register({SENSOR_INFO['name']}_regs::EXPOSURE_H, exp_h);
         if (ret != ESP_OK) return ret;
