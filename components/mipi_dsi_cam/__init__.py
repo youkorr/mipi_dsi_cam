@@ -41,6 +41,7 @@ PIXEL_FORMATS = {
 RESOLUTIONS = {
     "720P": (1280, 720),
     "800x640": (800, 640),
+    "1280x800": (1280, 800),  # Ajout pour OV02C10
 }
 
 AVAILABLE_SENSORS = {}
@@ -79,11 +80,23 @@ def load_sensors():
             'info': get_sensor_info(),
             'driver': get_driver_code
         }
-        logger.info("ov5647 sensor loaded")
+        logger.info("OV5647 sensor loaded")
     except ImportError as e:
-        logger.warning(f"ov5647 sensor not available: {e}")
+        logger.warning(f"OV5647 sensor not available: {e}")
     except Exception as e:
-        logger.error(f"Error loading ov5647: {e}")
+        logger.error(f"Error loading OV5647: {e}")
+    
+    try:
+        from .sensor_mipi_csi_ov02c10 import get_sensor_info, get_driver_code
+        AVAILABLE_SENSORS['ov02c10'] = {
+            'info': get_sensor_info(),
+            'driver': get_driver_code
+        }
+        logger.info("OV02C10 sensor loaded")
+    except ImportError as e:
+        logger.warning(f"OV02C10 sensor not available: {e}")
+    except Exception as e:
+        logger.error(f"Error loading OV02C10: {e}")
     
     if not AVAILABLE_SENSORS:
         raise cv.Invalid(
@@ -110,11 +123,13 @@ def validate_resolution(value):
             return RESOLUTIONS["720P"]
         elif value_upper in ["800X640", "800x640"]:
             return RESOLUTIONS["800x640"]
+        elif value_upper in ["1280X800", "1280x800"]:
+            return RESOLUTIONS["1280x800"]
         else:
             raise cv.Invalid(
-                f"Résolution '{value}' non supportée. Disponibles: 720P, 800x640"
+                f"Résolution '{value}' non supportée. Disponibles: 720P, 800x640, 1280x800"
             )
-    raise cv.Invalid("Le format de résolution doit être '720P' ou '800x640'")
+    raise cv.Invalid("Le format de résolution doit être '720P', '800x640' ou '1280x800'")
 
 # Marqueur spécial pour indiquer "pas d'horloge externe"
 NO_CLOCK = "__NO_EXTERNAL_CLOCK__"
