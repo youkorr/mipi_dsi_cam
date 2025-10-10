@@ -6,11 +6,6 @@
 
 #ifdef USE_ESP32_VARIANT_ESP32P4
 
-// Nécessaire pour LEDC (génération d'horloge)
-extern "C" {
-  #include "driver/ledc.h"
-}
-
 namespace esphome {
 namespace mipi_dsi_cam {
 
@@ -20,25 +15,12 @@ void MipiDsiCam::setup() {
   ESP_LOGI(TAG, "Init MIPI Camera");
   ESP_LOGI(TAG, "  Sensor type: %s", this->sensor_type_.c_str());
   
-  // 🚀 GÉNÉRATION DE L'HORLOGE EXTERNE (si pin configuré)
-  if (this->external_clock_pin_ >= 0) {
-    if (!this->start_external_clock_()) {
-      ESP_LOGE(TAG, "External clock failed");
-      this->mark_failed();
-      return;
-    }
-  } else {
-    ESP_LOGI(TAG, "⚠️  No external clock pin - using camera internal oscillator");
-  }
-  
   if (this->reset_pin_ != nullptr) {
     this->reset_pin_->setup();
     this->reset_pin_->digital_write(false);
     delay(10);
     this->reset_pin_->digital_write(true);
     delay(20);
-  } else {
-    ESP_LOGI(TAG, "⚠️  No reset pin configured");
   }
   
   if (!this->create_sensor_driver_()) {
@@ -79,57 +61,6 @@ void MipiDsiCam::setup() {
   
   this->initialized_ = true;
   ESP_LOGI(TAG, "Camera ready (%ux%u)", this->width_, this->height_);
-  
-  // Démarrage automatique du streaming
-  delay(100);
-  if (this->start_streaming()) {
-    ESP_LOGI(TAG, "✅ Auto-start streaming SUCCESS");
-  } else {
-    ESP_LOGE(TAG, "❌ Auto-start streaming FAILED");
-    this->mark_failed();
-  }
-}
-
-bool MipiDsiCam::start_external_clock_() {
-  ESP_LOGI(TAG, "Starting external clock on GPIO%d at %u Hz", 
-           this->external_clock_pin_, this->external_clock_frequency_);
-  
-  // Configuration LEDC pour générer l'horloge
-  ledc_timer_config_t ledc_timer = {};
-  ledc_timer.speed_mode = LEDC_LOW_SPEED_MODE;
-  ledc_timer.duty_resolution = LEDC_TIMER_2_BIT;  // 2 bits = 50% duty cycle
-  ledc_timer.timer_num = LEDC_TIMER_0;
-  ledc_timer.freq_hz = this->external_clock_frequency_;
-  ledc_timer.clk_cfg = LEDC_AUTO_CLK;
-  
-  esp_err_t ret = ledc_timer_config(&ledc_timer);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "LEDC timer config failed: 0x%x", ret);
-    return false;
-  }
-  
-  // Configuration du canal LEDC
-  ledc_channel_config_t ledc_channel = {};
-  ledc_channel.gpio_num = this->external_clock_pin_;
-  ledc_channel.speed_mode = LEDC_LOW_SPEED_MODE;
-  ledc_channel.channel = LEDC_CHANNEL_0;
-  ledc_channel.timer_sel = LEDC_TIMER_0;
-  ledc_channel.duty = 2;  // 50% duty cycle (2 sur 4 niveaux avec 2 bits)
-  ledc_channel.hpoint = 0;
-  
-  ret = ledc_channel_config(&ledc_channel);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "LEDC channel config failed: 0x%x", ret);
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "✅ External clock started: GPIO%d @ %u Hz", 
-           this->external_clock_pin_, this->external_clock_frequency_);
-  
-  // Petite pause pour stabiliser l'horloge
-  delay(50);
-  
-  return true;
 }
 
 bool MipiDsiCam::create_sensor_driver_() {
@@ -178,7 +109,7 @@ bool MipiDsiCam::init_sensor_() {
     return false;
   }
   
-  ESP_LOGI(TAG, "✅ Sensor ID OK: 0x%04X", pid);
+  ESP_LOGI(TAG, "Sensor ID: 0x%04X", pid);
   
   ret = this->sensor_driver_->init();
   if (ret != ESP_OK) {
@@ -339,17 +270,11 @@ bool IRAM_ATTR MipiDsiCam::on_csi_frame_done_(
 }
 
 bool MipiDsiCam::start_streaming() {
-  if (!this->initialized_) {
-    ESP_LOGE(TAG, "Cannot start: not initialized");
+  if (!this->initialized_ || this->streaming_) {
     return false;
   }
   
-  if (this->streaming_) {
-    ESP_LOGW(TAG, "Already streaming");
-    return true;
-  }
-  
-  ESP_LOGI(TAG, "🎬 Starting streaming...");
+  ESP_LOGI(TAG, "Start streaming");
   
   this->total_frames_received_ = 0;
   this->last_frame_log_time_ = millis();
@@ -370,7 +295,7 @@ bool MipiDsiCam::start_streaming() {
   }
   
   this->streaming_ = true;
-  ESP_LOGI(TAG, "✅ Streaming active");
+  ESP_LOGI(TAG, "Streaming active");
   return true;
 }
 
@@ -421,7 +346,7 @@ void MipiDsiCam::loop() {
       float sensor_fps = this->total_frames_received_ / 3.0f;
       float ready_rate = (float)ready_count / (float)(ready_count + not_ready_count) * 100.0f;
       
-      ESP_LOGI(TAG, "📊 Sensor: %.1f fps | frame_ready: %.1f%%", 
+      ESP_LOGI(TAG, "Sensor: %.1f fps | frame_ready: %.1f%%", 
                sensor_fps, ready_rate);
       
       this->total_frames_received_ = 0;
@@ -444,14 +369,6 @@ void MipiDsiCam::dump_config() {
   ESP_LOGCONFIG(TAG, "  Format: RGB565");
   ESP_LOGCONFIG(TAG, "  Lanes: %u", this->lane_count_);
   ESP_LOGCONFIG(TAG, "  Bayer: %u", this->bayer_pattern_);
-  
-  if (this->external_clock_pin_ >= 0) {
-    ESP_LOGCONFIG(TAG, "  External Clock: GPIO%d @ %u Hz", 
-                  this->external_clock_pin_, this->external_clock_frequency_);
-  } else {
-    ESP_LOGCONFIG(TAG, "  External Clock: Internal oscillator");
-  }
-  
   ESP_LOGCONFIG(TAG, "  Streaming: %s", this->streaming_ ? "YES" : "NO");
 }
 
