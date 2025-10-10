@@ -120,7 +120,7 @@ CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MipiDsiCam),
         cv.Optional(CONF_NAME, default="MIPI Camera"): cv.string,
-        cv.Optional(CONF_EXTERNAL_CLOCK_PIN): cv.Any(  # ← Maintenant optionnel !
+        cv.Optional(CONF_EXTERNAL_CLOCK_PIN, default=36): cv.Any(
             cv.int_range(min=0, max=50),
             pins.internal_gpio_output_pin_schema
         ),
@@ -144,17 +144,12 @@ async def to_code(config):
     
     cg.add(var.set_name(config[CONF_NAME]))
     
-    # Horloge externe (optionnelle)
-    if CONF_EXTERNAL_CLOCK_PIN in config:
-        ext_clock_pin_config = config[CONF_EXTERNAL_CLOCK_PIN]
-        if isinstance(ext_clock_pin_config, int):
-            cg.add(var.set_external_clock_pin(ext_clock_pin_config))
-        else:
-            pin_num = ext_clock_pin_config[pins.CONF_NUMBER]
-            cg.add(var.set_external_clock_pin(pin_num))
+    ext_clock_pin_config = config[CONF_EXTERNAL_CLOCK_PIN]
+    if isinstance(ext_clock_pin_config, int):
+        cg.add(var.set_external_clock_pin(ext_clock_pin_config))
     else:
-        # Pas d'horloge externe - le module utilise son oscillateur interne
-        cg.add(var.set_external_clock_pin(-1))
+        pin_num = ext_clock_pin_config[pins.CONF_NUMBER]
+        cg.add(var.set_external_clock_pin(pin_num))
     
     cg.add(var.set_external_clock_frequency(config[CONF_FREQUENCY]))
     
@@ -239,7 +234,6 @@ inline ISensorDriver* create_sensor_driver(const std::string& sensor_type, i2c::
     cg.add_build_flag("-DCONFIG_CAMERA_CORE0=1")
     cg.add_build_flag("-DUSE_ESP32_VARIANT_ESP32P4")
     
-    ext_clock_info = f"{config.get(CONF_EXTERNAL_CLOCK_PIN, 'internal')}"
     cg.add(cg.RawExpression(f'''
         ESP_LOGI("compile", "Camera configuration:");
         ESP_LOGI("compile", "  Sensor: {sensor_name}");
@@ -248,5 +242,4 @@ inline ISensorDriver* create_sensor_driver(const std::string& sensor_type, i2c::
         ESP_LOGI("compile", "  Address: 0x{sensor_address:02X}");
         ESP_LOGI("compile", "  Format: {config[CONF_PIXEL_FORMAT]}");
         ESP_LOGI("compile", "  FPS: {framerate}");
-        ESP_LOGI("compile", "  External Clock: {ext_clock_info}");
     '''))
