@@ -371,10 +371,8 @@ public:
             value
         }};
         
-        if (!i2c_->write(data, 3)) {{
-            return ESP_FAIL;
-        }}
-        return ESP_OK;
+        auto err = i2c_->write(data, 3);
+        return (err == esphome::i2c::ERROR_OK) ? ESP_OK : ESP_FAIL;
     }}
     
     esp_err_t read_register(uint16_t reg, uint8_t* value) {{
@@ -383,13 +381,14 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        if (!i2c_->write(addr, 2)) {{
+        // Écrire l'adresse sans STOP bit, puis lire avec STOP bit
+        auto err = i2c_->write(addr, 2, false);  // false = pas de STOP
+        if (err != esphome::i2c::ERROR_OK) {{
             return ESP_FAIL;
         }}
-        if (!i2c_->read(value, 1)) {{
-            return ESP_FAIL;
-        }}
-        return ESP_OK;
+        
+        err = i2c_->read(value, 1);  // avec STOP automatique
+        return (err == esphome::i2c::ERROR_OK) ? ESP_OK : ESP_FAIL;
     }}
     
 private:
