@@ -274,41 +274,33 @@ bool MipiDsiCam::init_isp_() {
 void MipiDsiCam::configure_white_balance_() {
   if (!this->isp_handle_) return;
   
-  // Configuration AWB pour corriger le fond vert
+  // Tentative de configuration AWB
   esp_isp_awb_config_t awb_config = {};
-  
   awb_config.sample_point = ISP_AWB_SAMPLE_POINT_AFTER_CCM;
   
-  // Window pour l'échantillonnage AWB (centre de l'image)
-  uint32_t h_start = this->width_ / 4;
-  uint32_t h_size = this->width_ / 2;
-  uint32_t v_start = this->height_ / 4;
-  uint32_t v_size = this->height_ / 2;
-  
-  awb_config.window.h_start = h_start;
-  awb_config.window.h_size = h_size;
-  awb_config.window.v_start = v_start;
-  awb_config.window.v_size = v_size;
+  // Configuration de la window (noms corrects pour ESP32-P4)
+  awb_config.window.top_left.x = this->width_ / 4;
+  awb_config.window.top_left.y = this->height_ / 4;
+  awb_config.window.btm_right.x = (this->width_ * 3) / 4;
+  awb_config.window.btm_right.y = (this->height_ * 3) / 4;
   
   esp_err_t ret = esp_isp_new_awb_controller(this->isp_handle_, &awb_config, &this->awb_ctlr_);
   
   if (ret == ESP_OK && this->awb_ctlr_ != nullptr) {
-    // Activer AWB
     esp_isp_awb_controller_enable(this->awb_ctlr_);
-    
-    // Configurer les gains pour corriger le vert
-    isp_awb_gain_t wb_gain = {};
-    wb_gain.red_gain = this->wb_red_gain_;
-    wb_gain.green_gain = this->wb_green_gain_;
-    wb_gain.blue_gain = this->wb_blue_gain_;
-    
-    esp_isp_awb_controller_set_gain(this->awb_ctlr_, &wb_gain);
-    
-    ESP_LOGI(TAG, "✅ AWB configuré: R=%.2f, G=%.2f, B=%.2f (correction vert)",
-             wb_gain.red_gain, wb_gain.green_gain, wb_gain.blue_gain);
+    ESP_LOGI(TAG, "✅ AWB activé");
   } else {
-    ESP_LOGW(TAG, "AWB config failed (0x%x), using default", ret);
+    ESP_LOGW(TAG, "AWB non disponible (0x%x), utilisation valeurs par défaut", ret);
   }
+  
+  // Note: La correction manuelle des couleurs (CCM) sera faite
+  // via les paramètres d'exposition et gain
+}
+
+void MipiDsiCam::configure_ccm_() {
+  // Pour l'instant, on laisse l'ISP faire la correction automatique
+  // Si nécessaire, on pourra ajouter la CCM plus tard
+  ESP_LOGD(TAG, "CCM: utilisation automatique de l'ISP");
 }
 
 bool MipiDsiCam::allocate_buffer_() {
