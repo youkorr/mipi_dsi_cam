@@ -6,6 +6,8 @@
 
 #ifdef USE_ESP32_VARIANT_ESP32P4
 
+#include "driver/ledc.h"
+
 namespace esphome {
 namespace mipi_dsi_cam {
 
@@ -33,6 +35,16 @@ void MipiDsiCam::setup() {
     ESP_LOGE(TAG, "Sensor init failed");
     this->mark_failed();
     return;
+  }
+  
+  if (this->has_external_clock()) {
+    if (!this->init_external_clock_()) {
+      ESP_LOGE(TAG, "External clock init failed");
+      this->mark_failed();
+      return;
+    }
+  } else {
+    ESP_LOGI(TAG, "No external clock configured - sensor must use internal clock");
   }
   
   if (!this->init_ldo_()) {
@@ -122,6 +134,44 @@ bool MipiDsiCam::init_sensor_() {
   delay(200);
   ESP_LOGI(TAG, "Sensor stabilized");
   
+  return true;
+}
+
+bool MipiDsiCam::init_external_clock_() {
+  ESP_LOGI(TAG, "Init external clock on GPIO%d @ %u Hz", 
+           this->external_clock_pin_, this->external_clock_frequency_);
+  
+  // Configuration du timer LEDC pour générer l'horloge
+  ledc_timer_config_t ledc_timer = {};
+  ledc_timer.speed_mode = LEDC_LOW_SPEED_MODE;
+  ledc_timer.duty_resolution = LEDC_TIMER_1_BIT;
+  ledc_timer.timer_num = LEDC_TIMER_0;
+  ledc_timer.freq_hz = this->external_clock_frequency_;
+  ledc_timer.clk_cfg = LEDC_AUTO_CLK;
+  
+  esp_err_t ret = ledc_timer_config(&ledc_timer);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "LEDC timer config failed: %d", ret);
+    return false;
+  }
+  
+  // Configuration du canal LEDC
+  ledc_channel_config_t ledc_channel = {};
+  ledc_channel.gpio_num = this->external_clock_pin_;
+  ledc_channel.speed_mode = LEDC_LOW_SPEED_MODE;
+  ledc_channel.channel = LEDC_CHANNEL_0;
+  ledc_channel.intr_type = LEDC_INTR_DISABLE;
+  ledc_channel.timer_sel = LEDC_TIMER_0;
+  ledc_channel.duty = 1;  // 50% duty cycle (1 sur 2^1)
+  ledc_channel.hpoint = 0;
+  
+  ret = ledc_channel_config(&ledc_channel);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "LEDC channel config failed: %d", ret);
+    return false;
+  }
+  
+  ESP_LOGI(TAG, "External clock initialized");
   return true;
 }
 
@@ -369,6 +419,14 @@ void MipiDsiCam::dump_config() {
   ESP_LOGCONFIG(TAG, "  Format: RGB565");
   ESP_LOGCONFIG(TAG, "  Lanes: %u", this->lane_count_);
   ESP_LOGCONFIG(TAG, "  Bayer: %u", this->bayer_pattern_);
+  
+  if (this->has_external_clock()) {
+    ESP_LOGCONFIG(TAG, "  External Clock: GPIO%d @ %u Hz", 
+                  this->external_clock_pin_, this->external_clock_frequency_);
+  } else {
+    ESP_LOGCONFIG(TAG, "  External Clock: None (using internal clock)");
+  }
+  
   ESP_LOGCONFIG(TAG, "  Streaming: %s", this->streaming_ ? "YES" : "NO");
 }
 
