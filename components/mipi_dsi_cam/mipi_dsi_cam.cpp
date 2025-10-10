@@ -288,19 +288,10 @@ void MipiDsiCam::configure_white_balance_() {
   
   if (ret == ESP_OK && this->awb_ctlr_ != nullptr) {
     esp_isp_awb_controller_enable(this->awb_ctlr_);
-    ESP_LOGI(TAG, "✅ AWB activé");
+    ESP_LOGI(TAG, "✅ AWB activé (auto-correction couleurs)");
   } else {
-    ESP_LOGW(TAG, "AWB non disponible (0x%x), utilisation valeurs par défaut", ret);
+    ESP_LOGW(TAG, "AWB non disponible (0x%x), utilisation ISP par défaut", ret);
   }
-  
-  // Note: La correction manuelle des couleurs (CCM) sera faite
-  // via les paramètres d'exposition et gain
-}
-
-void MipiDsiCam::configure_ccm_() {
-  // Pour l'instant, on laisse l'ISP faire la correction automatique
-  // Si nécessaire, on pourra ajouter la CCM plus tard
-  ESP_LOGD(TAG, "CCM: utilisation automatique de l'ISP");
 }
 
 bool MipiDsiCam::allocate_buffer_() {
