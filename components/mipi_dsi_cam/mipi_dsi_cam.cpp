@@ -72,7 +72,7 @@ void MipiDsiCam::setup() {
   }
   
   this->initialized_ = true;
-  ESP_LOGI(TAG, "Camera ready (%ux%u)", this->width_, this->height_);
+  ESP_LOGI(TAG, "Camera ready (%ux%u) with Auto Exposure and AWB", this->width_, this->height_);
 }
 
 bool MipiDsiCam::create_sensor_driver_() {
@@ -141,7 +141,6 @@ bool MipiDsiCam::init_external_clock_() {
   ESP_LOGI(TAG, "Init external clock on GPIO%d @ %u Hz", 
            this->external_clock_pin_, this->external_clock_frequency_);
   
-  // Configuration du timer LEDC pour générer l'horloge
   ledc_timer_config_t ledc_timer = {};
   ledc_timer.speed_mode = LEDC_LOW_SPEED_MODE;
   ledc_timer.duty_resolution = LEDC_TIMER_1_BIT;
@@ -155,14 +154,13 @@ bool MipiDsiCam::init_external_clock_() {
     return false;
   }
   
-  // Configuration du canal LEDC
   ledc_channel_config_t ledc_channel = {};
   ledc_channel.gpio_num = this->external_clock_pin_;
   ledc_channel.speed_mode = LEDC_LOW_SPEED_MODE;
   ledc_channel.channel = LEDC_CHANNEL_0;
   ledc_channel.intr_type = LEDC_INTR_DISABLE;
   ledc_channel.timer_sel = LEDC_TIMER_0;
-  ledc_channel.duty = 1;  // 50% duty cycle (1 sur 2^1)
+  ledc_channel.duty = 1;
   ledc_channel.hpoint = 0;
   
   ret = ledc_channel_config(&ledc_channel);
@@ -236,7 +234,7 @@ bool MipiDsiCam::init_csi_() {
 }
 
 bool MipiDsiCam::init_isp_() {
-  ESP_LOGI(TAG, "Init ISP");
+  ESP_LOGI(TAG, "Init ISP with AWB correction");
   
   uint32_t isp_clock_hz = 120000000;
   
@@ -266,8 +264,51 @@ bool MipiDsiCam::init_isp_() {
     return false;
   }
   
-  ESP_LOGI(TAG, "ISP OK");
+  // Configure AWB pour corriger le fond vert
+  this->configure_white_balance_();
+  
+  ESP_LOGI(TAG, "ISP OK avec AWB correction");
   return true;
+}
+
+void MipiDsiCam::configure_white_balance_() {
+  if (!this->isp_handle_) return;
+  
+  // Configuration AWB pour corriger le fond vert
+  esp_isp_awb_config_t awb_config = {};
+  
+  awb_config.sample_point = ISP_AWB_SAMPLE_POINT_AFTER_CCM;
+  
+  // Window pour l'échantillonnage AWB (centre de l'image)
+  uint32_t h_start = this->width_ / 4;
+  uint32_t h_size = this->width_ / 2;
+  uint32_t v_start = this->height_ / 4;
+  uint32_t v_size = this->height_ / 2;
+  
+  awb_config.window.h_start = h_start;
+  awb_config.window.h_size = h_size;
+  awb_config.window.v_start = v_start;
+  awb_config.window.v_size = v_size;
+  
+  esp_err_t ret = esp_isp_new_awb_controller(this->isp_handle_, &awb_config, &this->awb_ctlr_);
+  
+  if (ret == ESP_OK && this->awb_ctlr_ != nullptr) {
+    // Activer AWB
+    esp_isp_awb_controller_enable(this->awb_ctlr_);
+    
+    // Configurer les gains pour corriger le vert
+    isp_awb_gain_t wb_gain = {};
+    wb_gain.red_gain = this->wb_red_gain_;
+    wb_gain.green_gain = this->wb_green_gain_;
+    wb_gain.blue_gain = this->wb_blue_gain_;
+    
+    esp_isp_awb_controller_set_gain(this->awb_ctlr_, &wb_gain);
+    
+    ESP_LOGI(TAG, "✅ AWB configuré: R=%.2f, G=%.2f, B=%.2f (correction vert)",
+             wb_gain.red_gain, wb_gain.green_gain, wb_gain.blue_gain);
+  } else {
+    ESP_LOGW(TAG, "AWB config failed (0x%x), using default", ret);
+  }
 }
 
 bool MipiDsiCam::allocate_buffer_() {
@@ -345,7 +386,7 @@ bool MipiDsiCam::start_streaming() {
   }
   
   this->streaming_ = true;
-  ESP_LOGI(TAG, "Streaming active");
+  ESP_LOGI(TAG, "Streaming active avec Auto Exposure");
   return true;
 }
 
@@ -380,8 +421,83 @@ bool MipiDsiCam::capture_frame() {
   return was_ready;
 }
 
+void MipiDsiCam::update_auto_exposure_() {
+  if (!this->auto_exposure_enabled_ || !this->sensor_driver_) {
+    return;
+  }
+  
+  uint32_t now = millis();
+  if (now - this->last_ae_update_ < 100) {
+    return;
+  }
+  this->last_ae_update_ = now;
+  
+  uint32_t avg_brightness = this->calculate_brightness_();
+  
+  int32_t brightness_error = (int32_t)this->ae_target_brightness_ - (int32_t)avg_brightness;
+  
+  if (abs(brightness_error) > 10) {
+    
+    if (brightness_error > 0) {
+      // Image trop sombre
+      if (this->current_exposure_ < 0xF00) {
+        this->current_exposure_ += 0x40;
+      } else if (this->current_gain_index_ < 120) {
+        this->current_gain_index_ += 2;
+      }
+    } else {
+      // Image trop lumineuse
+      if (this->current_exposure_ > 0x200) {
+        this->current_exposure_ -= 0x40;
+      } else if (this->current_gain_index_ > 0) {
+        this->current_gain_index_ -= 2;
+      }
+    }
+    
+    this->sensor_driver_->set_exposure(this->current_exposure_);
+    this->sensor_driver_->set_gain(this->current_gain_index_);
+    
+    ESP_LOGD(TAG, "🔆 AE: brightness=%u target=%u → exp=0x%04X gain=%u",
+             avg_brightness, this->ae_target_brightness_,
+             this->current_exposure_, this->current_gain_index_);
+  }
+}
+
+uint32_t MipiDsiCam::calculate_brightness_() {
+  if (!this->current_frame_buffer_) {
+    return 128;
+  }
+  
+  uint32_t sum = 0;
+  uint32_t sample_count = 0;
+  
+  uint32_t center_offset = (this->height_ / 2) * this->width_ * 2 + (this->width_ / 2) * 2;
+  
+  for (int i = 0; i < 100; i++) {
+    uint32_t offset = center_offset + (i * 200);
+    if (offset + 1 < this->frame_buffer_size_) {
+      uint16_t pixel = (this->current_frame_buffer_[offset + 1] << 8) | 
+                       this->current_frame_buffer_[offset];
+      
+      uint8_t r = (pixel >> 11) & 0x1F;
+      uint8_t g = (pixel >> 5) & 0x3F;
+      uint8_t b = pixel & 0x1F;
+      
+      uint32_t brightness = (r * 8 * 299 + g * 4 * 587 + b * 8 * 114) / 1000;
+      
+      sum += brightness;
+      sample_count++;
+    }
+  }
+  
+  return sample_count > 0 ? (sum / sample_count) : 128;
+}
+
 void MipiDsiCam::loop() {
   if (this->streaming_) {
+    // Mise à jour Auto Exposure
+    this->update_auto_exposure_();
+    
     static uint32_t ready_count = 0;
     static uint32_t not_ready_count = 0;
     
@@ -396,8 +512,8 @@ void MipiDsiCam::loop() {
       float sensor_fps = this->total_frames_received_ / 3.0f;
       float ready_rate = (float)ready_count / (float)(ready_count + not_ready_count) * 100.0f;
       
-      ESP_LOGI(TAG, "Sensor: %.1f fps | frame_ready: %.1f%%", 
-               sensor_fps, ready_rate);
+      ESP_LOGI(TAG, "📸 FPS: %.1f | frame_ready: %.1f%% | exp:0x%04X gain:%u", 
+               sensor_fps, ready_rate, this->current_exposure_, this->current_gain_index_);
       
       this->total_frames_received_ = 0;
       this->last_frame_log_time_ = now;
@@ -427,7 +543,96 @@ void MipiDsiCam::dump_config() {
     ESP_LOGCONFIG(TAG, "  External Clock: None (using internal clock)");
   }
   
+  ESP_LOGCONFIG(TAG, "  Auto Exposure: %s", this->auto_exposure_enabled_ ? "ON" : "OFF");
+  ESP_LOGCONFIG(TAG, "  AE Target: %u", this->ae_target_brightness_);
+  ESP_LOGCONFIG(TAG, "  White Balance: R=%.2f G=%.2f B=%.2f", 
+                this->wb_red_gain_, this->wb_green_gain_, this->wb_blue_gain_);
   ESP_LOGCONFIG(TAG, "  Streaming: %s", this->streaming_ ? "YES" : "NO");
+}
+
+// Méthodes publiques pour contrôle
+void MipiDsiCam::set_auto_exposure(bool enabled) {
+  this->auto_exposure_enabled_ = enabled;
+  ESP_LOGI(TAG, "Auto Exposure: %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+void MipiDsiCam::set_ae_target_brightness(uint8_t target) {
+  this->ae_target_brightness_ = target;
+  ESP_LOGI(TAG, "AE target brightness: %u", target);
+}
+
+void MipiDsiCam::set_manual_exposure(uint16_t exposure) {
+  this->current_exposure_ = exposure;
+  if (this->sensor_driver_) {
+    this->sensor_driver_->set_exposure(exposure);
+    ESP_LOGI(TAG, "Manual exposure: 0x%04X", exposure);
+  }
+}
+
+void MipiDsiCam::set_manual_gain(uint8_t gain_index) {
+  this->current_gain_index_ = gain_index;
+  if (this->sensor_driver_) {
+    this->sensor_driver_->set_gain(gain_index);
+    ESP_LOGI(TAG, "Manual gain: %u", gain_index);
+  }
+}
+
+void MipiDsiCam::set_white_balance_gains(float red, float green, float blue) {
+  this->wb_red_gain_ = red;
+  this->wb_green_gain_ = green;
+  this->wb_blue_gain_ = blue;
+  
+  this->configure_white_balance_();
+  
+  ESP_LOGI(TAG, "WB gains: R=%.2f G=%.2f B=%.2f", red, green, blue);
+}
+
+void MipiDsiCam::adjust_exposure(uint16_t exposure_value) {
+  if (!this->sensor_driver_) {
+    ESP_LOGE(TAG, "No sensor driver");
+    return;
+  }
+  
+  ESP_LOGI(TAG, "Adjusting exposure to: 0x%04X", exposure_value);
+  esp_err_t ret = this->sensor_driver_->set_exposure(exposure_value);
+  
+  if (ret == ESP_OK) {
+    this->current_exposure_ = exposure_value;
+    ESP_LOGI(TAG, "✅ Exposure adjusted successfully");
+  } else {
+    ESP_LOGE(TAG, "❌ Failed to adjust exposure");
+  }
+}
+
+void MipiDsiCam::adjust_gain(uint8_t gain_index) {
+  if (!this->sensor_driver_) {
+    ESP_LOGE(TAG, "No sensor driver");
+    return;
+  }
+  
+  ESP_LOGI(TAG, "Adjusting gain to index: %u", gain_index);
+  esp_err_t ret = this->sensor_driver_->set_gain(gain_index);
+  
+  if (ret == ESP_OK) {
+    this->current_gain_index_ = gain_index;
+    ESP_LOGI(TAG, "✅ Gain adjusted successfully");
+  } else {
+    ESP_LOGE(TAG, "❌ Failed to adjust gain");
+  }
+}
+
+void MipiDsiCam::set_brightness_level(uint8_t level) {
+  if (level > 10) level = 10;
+  
+  uint16_t exposure = 0x400 + (level * 0x0B0);
+  uint8_t gain = level * 6;
+  
+  ESP_LOGI(TAG, "🔆 Setting brightness level %u: exposure=0x%04X, gain=%u", 
+           level, exposure, gain);
+  
+  adjust_exposure(exposure);
+  delay(50);
+  adjust_gain(gain);
 }
 
 }  // namespace mipi_dsi_cam
