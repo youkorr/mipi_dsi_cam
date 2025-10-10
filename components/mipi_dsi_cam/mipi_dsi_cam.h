@@ -139,7 +139,6 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   isp_proc_handle_t isp_handle_{nullptr};
   esp_ldo_channel_handle_t ldo_handle_{nullptr};
   isp_awb_ctlr_t awb_ctlr_{nullptr};
-  isp_ccm_ctlr_t ccm_ctlr_{nullptr};
   
   bool create_sensor_driver_();
   bool init_sensor_();
@@ -150,7 +149,6 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   bool allocate_buffer_();
   
   void configure_white_balance_();
-  void configure_ccm_();
   void update_auto_exposure_();
   uint32_t calculate_brightness_();
   
