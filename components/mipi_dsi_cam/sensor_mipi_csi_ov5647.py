@@ -342,8 +342,10 @@ public:
             value
         }};
         
-        esphome::i2c::ErrorCode err = i2c_->write(data, 3);
-        return (err == esphome::i2c::ERROR_OK) ? ESP_OK : ESP_FAIL;
+        if (!i2c_->write(data, 3)) {{
+            return ESP_FAIL;
+        }}
+        return ESP_OK;
     }}
     
     esp_err_t read_register(uint16_t reg, uint8_t* value) {{
@@ -352,8 +354,13 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        esphome::i2c::ErrorCode err = i2c_->write_read(addr, 2, value, 1);
-        return (err == esphome::i2c::ERROR_OK) ? ESP_OK : ESP_FAIL;
+        if (!i2c_->write(addr, 2)) {{
+            return ESP_FAIL;
+        }}
+        if (!i2c_->read(value, 1)) {{
+            return ESP_FAIL;
+        }}
+        return ESP_OK;
     }}
     
 private:
