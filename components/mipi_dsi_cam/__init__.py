@@ -120,16 +120,17 @@ CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MipiDsiCam),
         cv.Optional(CONF_NAME, default="MIPI Camera"): cv.string,
-        cv.Optional(CONF_EXTERNAL_CLOCK_PIN, default=36): cv.Any(
+        cv.Optional(CONF_EXTERNAL_CLOCK_PIN): cv.Any(
             cv.int_range(min=0, max=50),
-            pins.internal_gpio_output_pin_schema
+            pins.internal_gpio_output_pin_schema,
+            None
         ),
         cv.Optional(CONF_FREQUENCY, default=24000000): cv.int_range(min=6000000, max=40000000),
         cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,
         cv.Required(CONF_SENSOR): validate_sensor,
         cv.Optional(CONF_LANE): cv.int_range(min=1, max=4),
         cv.Optional(CONF_ADDRESS_SENSOR): cv.i2c_address,
-        cv.Optional(CONF_RESOLUTION): validate_resolution,  # Si non spécifié, utilise la résolution native du capteur
+        cv.Optional(CONF_RESOLUTION): validate_resolution,
         cv.Optional(CONF_PIXEL_FORMAT, default="RGB565"): cv.enum(PIXEL_FORMATS, upper=True),
         cv.Optional(CONF_FRAMERATE): cv.int_range(min=1, max=60),
         cv.Optional(CONF_JPEG_QUALITY, default=10): cv.int_range(min=1, max=63),
@@ -144,12 +145,17 @@ async def to_code(config):
     
     cg.add(var.set_name(config[CONF_NAME]))
     
-    ext_clock_pin_config = config[CONF_EXTERNAL_CLOCK_PIN]
-    if isinstance(ext_clock_pin_config, int):
-        cg.add(var.set_external_clock_pin(ext_clock_pin_config))
+    # Gérer external_clock_pin (optionnel)
+    if CONF_EXTERNAL_CLOCK_PIN in config and config[CONF_EXTERNAL_CLOCK_PIN] is not None:
+        ext_clock_pin_config = config[CONF_EXTERNAL_CLOCK_PIN]
+        if isinstance(ext_clock_pin_config, int):
+            cg.add(var.set_external_clock_pin(ext_clock_pin_config))
+        else:
+            pin_num = ext_clock_pin_config[pins.CONF_NUMBER]
+            cg.add(var.set_external_clock_pin(pin_num))
     else:
-        pin_num = ext_clock_pin_config[pins.CONF_NUMBER]
-        cg.add(var.set_external_clock_pin(pin_num))
+        # Pas d'horloge externe
+        cg.add(var.set_external_clock_pin(-1))
     
     cg.add(var.set_external_clock_frequency(config[CONF_FREQUENCY]))
     
@@ -234,6 +240,9 @@ inline ISensorDriver* create_sensor_driver(const std::string& sensor_type, i2c::
     cg.add_build_flag("-DCONFIG_CAMERA_CORE0=1")
     cg.add_build_flag("-DUSE_ESP32_VARIANT_ESP32P4")
     
+    # Message de log pour la configuration
+    ext_clock_msg = "none" if (CONF_EXTERNAL_CLOCK_PIN not in config or config[CONF_EXTERNAL_CLOCK_PIN] is None) else str(config.get(CONF_EXTERNAL_CLOCK_PIN))
+    
     cg.add(cg.RawExpression(f'''
         ESP_LOGI("compile", "Camera configuration:");
         ESP_LOGI("compile", "  Sensor: {sensor_name}");
@@ -242,4 +251,5 @@ inline ISensorDriver* create_sensor_driver(const std::string& sensor_type, i2c::
         ESP_LOGI("compile", "  Address: 0x{sensor_address:02X}");
         ESP_LOGI("compile", "  Format: {config[CONF_PIXEL_FORMAT]}");
         ESP_LOGI("compile", "  FPS: {framerate}");
+        ESP_LOGI("compile", "  External Clock: {ext_clock_msg}");
     '''))
