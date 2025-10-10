@@ -4,7 +4,7 @@ SENSOR_INFO = {
     'pid': 0x5647,
     'i2c_address': 0x36,
     'lane_count': 2,
-    'bayer_pattern': 3,
+    'bayer_pattern': 3,  # BGGR
     'lane_bitrate_mbps': 400,
     'width': 800,
     'height': 640,
@@ -23,27 +23,50 @@ REGISTERS = {
     'exposure_l': 0x3502,
 }
 
+# Séquence officielle OV5647 800x640 RAW8 50fps avec 2 lanes
+# IDI Clock: 100 MHz, MIPI CSI Line Rate: 400 Mbps
 INIT_SEQUENCE = [
-    (0x0100, 0x00, 0),
-    (0x0103, 0x01, 10),
-    (0x4800, 0x01, 0),
-    (0x3034, 0x18, 0),
-    (0x3035, 0x41, 0),
-    (0x3036, 0x80, 0),
-    (0x303c, 0x11, 0),
+    # Stop streaming et reset
+    (0x0100, 0x00, 0),   # Stream off
+    (0x0103, 0x01, 10),  # Software reset, attendre 10ms
+    
+    # MIPI control
+    (0x4800, 0x01, 0),   # MIPI control
+    
+    # System control
+    (0x3034, 0x18, 0),   # RAW8 mode
+    (0x3035, 0x41, 0),   # System clock divider
+    (0x3036, 0x80, 0),   # PLL multiplier: (100MHz * 8 * 4) / 25MHz = 128 (0x80)
+    (0x303c, 0x11, 0),   # PLLS control
+    
+    # System control
     (0x3106, 0xf5, 0),
-    (0x3821, 0x03, 0),
-    (0x3820, 0x41, 0),
+    
+    # Format control
+    (0x3821, 0x03, 0),   # Horizontal binning
+    (0x3820, 0x41, 0),   # Vertical binning
     (0x3827, 0xec, 0),
+    
+    # Analog control
     (0x370c, 0x0f, 0),
     (0x3612, 0x59, 0),
     (0x3618, 0x00, 0),
-    (0x5000, 0xff, 0),
-    (0x583e, 0xf0, 0),
-    (0x583f, 0x20, 0),
+    
+    # ISP control
+    (0x5000, 0xff, 0),   # Enable tous les ISP blocks
+    
+    # Lens shading control
+    (0x583e, 0xf0, 0),   # LSC max gain
+    (0x583f, 0x20, 0),   # LSC min gain
+    
+    # AWB control
     (0x5002, 0x41, 0),
     (0x5003, 0x08, 0),
+    
+    # Special digital effects
     (0x5a00, 0x08, 0),
+    
+    # System control
     (0x3000, 0x00, 0),
     (0x3001, 0x00, 0),
     (0x3002, 0x00, 0),
@@ -52,35 +75,69 @@ INIT_SEQUENCE = [
     (0x3018, 0x44, 0),
     (0x301c, 0xf8, 0),
     (0x301d, 0xf0, 0),
+    
+    # AEC/AGC control
     (0x3a18, 0x00, 0),
     (0x3a19, 0xf8, 0),
+    
+    # 50/60Hz detection
     (0x3c01, 0x80, 0),
     (0x3c00, 0x40, 0),
+    
+    # BLC control
     (0x3b07, 0x0c, 0),
-    (0x380c, 0x07, 0),
-    (0x380d, 0x68, 0),
-    (0x380e, 0x03, 0),
-    (0x380f, 0xd8, 0),
-    (0x3814, 0x31, 0),
-    (0x3815, 0x31, 0),
+    
+    # Timing control - HTS (Horizontal Total Size)
+    # 1896 pixels = 0x0768
+    (0x380c, 0x07, 0),   # HTS high byte
+    (0x380d, 0x68, 0),   # HTS low byte
+    
+    # Timing control - VTS (Vertical Total Size)
+    # 984 lines = 0x03D8
+    (0x380e, 0x03, 0),   # VTS high byte
+    (0x380f, 0xd8, 0),   # VTS low byte
+    
+    # Horizontal and vertical subsample
+    (0x3814, 0x31, 0),   # Horizontal odd subsample increment
+    (0x3815, 0x31, 0),   # Vertical odd subsample increment
+    
+    # Timing control
     (0x3708, 0x64, 0),
     (0x3709, 0x52, 0),
-    (0x3800, 0x01, 0),
-    (0x3801, 0xf4, 0),
-    (0x3802, 0x00, 0),
-    (0x3803, 0x00, 0),
-    (0x3804, 0x0a, 0),
-    (0x3805, 0x3f, 0),
-    (0x3806, 0x07, 0),
-    (0x3807, 0xa1, 0),
-    (0x3808, 0x03, 0),
-    (0x3809, 0x20, 0),
-    (0x380a, 0x02, 0),
-    (0x380b, 0x80, 0),
-    (0x3810, 0x00, 0),
-    (0x3811, 0x08, 0),
-    (0x3812, 0x00, 0),
-    (0x3813, 0x00, 0),
+    
+    # X address start: 500 (0x01F4)
+    (0x3800, 0x01, 0),   # X address start high byte
+    (0x3801, 0xf4, 0),   # X address start low byte
+    
+    # Y address start: 0 (0x0000)
+    (0x3802, 0x00, 0),   # Y address start high byte
+    (0x3803, 0x00, 0),   # Y address start low byte
+    
+    # X address end: 2623 (0x0A3F)
+    (0x3804, 0x0a, 0),   # X address end high byte
+    (0x3805, 0x3f, 0),   # X address end low byte
+    
+    # Y address end: 1953 (0x07A1)
+    (0x3806, 0x07, 0),   # Y address end high byte
+    (0x3807, 0xa1, 0),   # Y address end low byte
+    
+    # Output width: 800 (0x0320)
+    (0x3808, 0x03, 0),   # Output horizontal width high byte
+    (0x3809, 0x20, 0),   # Output horizontal width low byte
+    
+    # Output height: 640 (0x0280)
+    (0x380a, 0x02, 0),   # Output vertical height high byte
+    (0x380b, 0x80, 0),   # Output vertical height low byte
+    
+    # Timing H offset: 8 (0x0008)
+    (0x3810, 0x00, 0),   # Timing hoffset high byte
+    (0x3811, 0x08, 0),   # Timing hoffset low byte
+    
+    # Timing V offset: 0 (0x0000)
+    (0x3812, 0x00, 0),   # Timing voffset high byte
+    (0x3813, 0x00, 0),   # Timing voffset low byte
+    
+    # Analog control registers
     (0x3630, 0x2e, 0),
     (0x3632, 0xe2, 0),
     (0x3633, 0x23, 0),
@@ -96,9 +153,13 @@ INIT_SEQUENCE = [
     (0x3731, 0x02, 0),
     (0x370b, 0x60, 0),
     (0x3705, 0x1a, 0),
+    
+    # Frex control
     (0x3f05, 0x02, 0),
     (0x3f06, 0x10, 0),
     (0x3f01, 0x0a, 0),
+    
+    # AEC/AGC control registers
     (0x3a08, 0x01, 0),
     (0x3a09, 0x27, 0),
     (0x3a0a, 0x00, 0),
@@ -111,14 +172,23 @@ INIT_SEQUENCE = [
     (0x3a1e, 0x50, 0),
     (0x3a11, 0x60, 0),
     (0x3a1f, 0x28, 0),
+    
+    # BLC control
     (0x4001, 0x02, 0),
     (0x4004, 0x02, 0),
     (0x4000, 0x09, 0),
-    (0x4837, 0x14, 0),
+    
+    # MIPI timing control
+    # Calculé: 1000000000 / (100000000 / 4) = 40 (0x28)
+    # Mais la doc officielle utilise une valeur différente selon timing
+    (0x4837, 0x28, 0),   # MIPI PCLK period (corrigé)
+    
+    # Vertical and horizontal frame off
     (0x4050, 0x6e, 0),
     (0x4051, 0x8f, 0),
 ]
 
+# Valeurs de gain identiques au fichier original
 GAIN_VALUES = [
     1000, 1062, 1125, 1187, 1250, 1312, 1375, 1437,
     1500, 1562, 1625, 1687, 1750, 1812, 1875, 1937,
@@ -197,7 +267,7 @@ public:
     {SENSOR_INFO['name'].upper()}Driver(esphome::i2c::I2CDevice* i2c) : i2c_(i2c) {{}}
     
     esp_err_t init() {{
-        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()}");
+        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} - 800x640 RAW8 50fps");
         
         for (size_t i = 0; i < sizeof({SENSOR_INFO['name']}_init_sequence) / sizeof({SENSOR_INFO['name'].upper()}InitRegister); i++) {{
             const auto& reg = {SENSOR_INFO['name']}_init_sequence[i];
@@ -213,7 +283,7 @@ public:
             }}
         }}
         
-        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized");
+        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized - 2 lanes @ 400Mbps");
         return ESP_OK;
     }}
     
