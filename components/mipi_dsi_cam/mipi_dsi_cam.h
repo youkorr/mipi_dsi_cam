@@ -80,8 +80,18 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   
   bool has_external_clock() const { return this->external_clock_pin_ >= 0; }
 
+  // Auto Exposure et White Balance
+  void set_auto_exposure(bool enabled);
+  void set_ae_target_brightness(uint8_t target);
+  void set_manual_exposure(uint16_t exposure);
+  void set_manual_gain(uint8_t gain_index);
+  void set_white_balance_gains(float red, float green, float blue);
+  void adjust_exposure(uint16_t exposure_value);
+  void adjust_gain(uint8_t gain_index);
+  void set_brightness_level(uint8_t level);
+
  protected:
-  int8_t external_clock_pin_{-1};  // -1 = pas d'horloge externe
+  int8_t external_clock_pin_{-1};
   uint32_t external_clock_frequency_{24000000};
   GPIOPin *reset_pin_{nullptr};
   
@@ -111,11 +121,24 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   uint8_t buffer_index_{0};
   
   ISensorDriver *sensor_driver_{nullptr};
+
+  // Auto Exposure
+  bool auto_exposure_enabled_{true};
+  uint16_t current_exposure_{0x9C0};
+  uint8_t current_gain_index_{20};
+  uint32_t ae_target_brightness_{128};
+  uint32_t last_ae_update_{0};
+  
+  // White Balance correction
+  float wb_red_gain_{1.3f};
+  float wb_green_gain_{0.9f};
+  float wb_blue_gain_{1.1f};
   
 #ifdef USE_ESP32_VARIANT_ESP32P4
   esp_cam_ctlr_handle_t csi_handle_{nullptr};
   isp_proc_handle_t isp_handle_{nullptr};
   esp_ldo_channel_handle_t ldo_handle_{nullptr};
+  isp_awb_ctlr_t awb_ctlr_{nullptr};
   
   bool create_sensor_driver_();
   bool init_sensor_();
@@ -124,6 +147,10 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   bool init_csi_();
   bool init_isp_();
   bool allocate_buffer_();
+  
+  void configure_white_balance_();
+  void update_auto_exposure_();
+  uint32_t calculate_brightness_();
   
   static bool IRAM_ATTR on_csi_new_frame_(
     esp_cam_ctlr_handle_t handle,
