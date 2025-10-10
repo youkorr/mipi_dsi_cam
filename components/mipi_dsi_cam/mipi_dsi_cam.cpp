@@ -274,7 +274,13 @@ bool MipiDsiCam::init_isp_() {
 void MipiDsiCam::configure_white_balance_() {
   if (!this->isp_handle_) return;
   
-  // Tentative de configuration AWB
+  // OV5647 a des problèmes avec AWB sur ESP32-P4, on le désactive
+  if (this->sensor_type_ == "ov5647") {
+    ESP_LOGI(TAG, "OV5647 détecté - AWB matériel désactivé (utilisation ISP par défaut)");
+    return;
+  }
+  
+  // Tentative de configuration AWB pour les autres capteurs
   esp_isp_awb_config_t awb_config = {};
   awb_config.sample_point = ISP_AWB_SAMPLE_POINT_AFTER_CCM;
   
