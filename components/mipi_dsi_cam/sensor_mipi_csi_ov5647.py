@@ -4,7 +4,7 @@ SENSOR_INFO = {
     'pid': 0x5647,
     'i2c_address': 0x36,
     'lane_count': 2,
-    'bayer_pattern': 3,  # BGGR
+    'bayer_pattern': 0,  # BGGR (OV5647 datasheet: BG/GR pattern)
     'lane_bitrate_mbps': 400,
     'width': 800,
     'height': 640,
@@ -36,7 +36,7 @@ INIT_SEQUENCE = [
     # System control
     (0x3034, 0x18, 0),   # RAW8 mode
     (0x3035, 0x41, 0),   # System clock divider
-    (0x3036, 0x80, 0),   # PLL multiplier: (100MHz * 8 * 4) / 25MHz = 128 (0x80)
+    (0x3036, 0x80, 0),   # PLL multiplier: 128 (0x80)
     (0x303c, 0x11, 0),   # PLLS control
     
     # System control
@@ -179,9 +179,7 @@ INIT_SEQUENCE = [
     (0x4000, 0x09, 0),
     
     # MIPI timing control
-    # Calculé: 1000000000 / (100000000 / 4) = 40 (0x28)
-    # Mais la doc officielle utilise une valeur différente selon timing
-    (0x4837, 0x28, 0),   # MIPI PCLK period (corrigé)
+    (0x4837, 0x28, 0),   # MIPI PCLK period
     
     # Vertical and horizontal frame off
     (0x4050, 0x6e, 0),
