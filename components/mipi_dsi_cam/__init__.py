@@ -1,461 +1,252 @@
-#include "mipi_dsi_cam.h"
-#include "esphome/core/log.h"
-#include "esphome/core/application.h"
+import esphome.codegen as cg
+import esphome.config_validation as cv
+from esphome.components import i2c
+from esphome.const import (
+    CONF_ID,
+    CONF_NAME,
+    CONF_FREQUENCY,
+    CONF_ADDRESS,
+)
+from esphome import pins
 
-#include "mipi_dsi_cam_drivers_generated.h"
+CODEOWNERS = ["@youkorr"]
+DEPENDENCIES = ["i2c", "esp32"]
+MULTI_CONF = True
 
-#ifdef USE_ESP32_VARIANT_ESP32P4
+mipi_dsi_cam_ns = cg.esphome_ns.namespace("mipi_dsi_cam")
+MipiDsiCam = mipi_dsi_cam_ns.class_("MipiDsiCam", cg.Component, i2c.I2CDevice)
 
-// Nécessaire pour LEDC (génération d'horloge)
-extern "C" {
-  #include "driver/ledc.h"
+CONF_EXTERNAL_CLOCK_PIN = "external_clock_pin"
+CONF_RESET_PIN = "reset_pin"
+CONF_SENSOR = "sensor"
+CONF_LANE = "lane"
+CONF_ADDRESS_SENSOR = "address_sensor"
+CONF_RESOLUTION = "resolution"
+CONF_PIXEL_FORMAT = "pixel_format"
+CONF_FRAMERATE = "framerate"
+CONF_JPEG_QUALITY = "jpeg_quality"
+
+PixelFormat = mipi_dsi_cam_ns.enum("PixelFormat")
+PIXEL_FORMAT_RGB565 = PixelFormat.PIXEL_FORMAT_RGB565
+PIXEL_FORMAT_YUV422 = PixelFormat.PIXEL_FORMAT_YUV422
+PIXEL_FORMAT_RAW8 = PixelFormat.PIXEL_FORMAT_RAW8
+
+PIXEL_FORMATS = {
+    "RGB565": PIXEL_FORMAT_RGB565,
+    "YUV422": PIXEL_FORMAT_YUV422,
+    "RAW8": PIXEL_FORMAT_RAW8,
 }
 
-namespace esphome {
-namespace mipi_dsi_cam {
-
-static const char *const TAG = "mipi_dsi_cam";
-
-void MipiDsiCam::setup() {
-  ESP_LOGI(TAG, "Init MIPI Camera");
-  ESP_LOGI(TAG, "  Sensor type: %s", this->sensor_type_.c_str());
-  
-  // 🚀 GÉNÉRATION DE L'HORLOGE EXTERNE (si pin configuré)
-  if (this->external_clock_pin_ >= 0) {
-    if (!this->start_external_clock_()) {
-      ESP_LOGE(TAG, "External clock failed");
-      this->mark_failed();
-      return;
-    }
-  } else {
-    ESP_LOGI(TAG, "⚠️  No external clock pin - using camera internal oscillator");
-  }
-  
-  if (this->reset_pin_ != nullptr) {
-    this->reset_pin_->setup();
-    this->reset_pin_->digital_write(false);
-    delay(10);
-    this->reset_pin_->digital_write(true);
-    delay(20);
-  } else {
-    ESP_LOGI(TAG, "⚠️  No reset pin configured");
-  }
-  
-  if (!this->create_sensor_driver_()) {
-    ESP_LOGE(TAG, "Driver creation failed");
-    this->mark_failed();
-    return;
-  }
-  
-  if (!this->init_sensor_()) {
-    ESP_LOGE(TAG, "Sensor init failed");
-    this->mark_failed();
-    return;
-  }
-  
-  if (!this->init_ldo_()) {
-    ESP_LOGE(TAG, "LDO init failed");
-    this->mark_failed();
-    return;
-  }
-  
-  if (!this->init_csi_()) {
-    ESP_LOGE(TAG, "CSI init failed");
-    this->mark_failed();
-    return;
-  }
-  
-  if (!this->init_isp_()) {
-    ESP_LOGE(TAG, "ISP init failed");
-    this->mark_failed();
-    return;
-  }
-  
-  if (!this->allocate_buffer_()) {
-    ESP_LOGE(TAG, "Buffer alloc failed");
-    this->mark_failed();
-    return;
-  }
-  
-  this->initialized_ = true;
-  ESP_LOGI(TAG, "Camera ready (%ux%u)", this->width_, this->height_);
-  
-  // Démarrage automatique du streaming
-  delay(100);
-  if (this->start_streaming()) {
-    ESP_LOGI(TAG, "✅ Auto-start streaming SUCCESS");
-  } else {
-    ESP_LOGE(TAG, "❌ Auto-start streaming FAILED");
-    this->mark_failed();
-  }
+# Deux résolutions disponibles
+RESOLUTIONS = {
+    "720P": (1280, 720),
+    "800x640": (800, 640),
 }
 
-bool MipiDsiCam::start_external_clock_() {
-  ESP_LOGI(TAG, "Starting external clock on GPIO%d at %u Hz", 
-           this->external_clock_pin_, this->external_clock_frequency_);
-  
-  // Configuration LEDC pour générer l'horloge
-  ledc_timer_config_t ledc_timer = {};
-  ledc_timer.speed_mode = LEDC_LOW_SPEED_MODE;
-  ledc_timer.duty_resolution = LEDC_TIMER_2_BIT;  // 2 bits = 50% duty cycle
-  ledc_timer.timer_num = LEDC_TIMER_0;
-  ledc_timer.freq_hz = this->external_clock_frequency_;
-  ledc_timer.clk_cfg = LEDC_AUTO_CLK;
-  
-  esp_err_t ret = ledc_timer_config(&ledc_timer);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "LEDC timer config failed: 0x%x", ret);
-    return false;
-  }
-  
-  // Configuration du canal LEDC
-  ledc_channel_config_t ledc_channel = {};
-  ledc_channel.gpio_num = this->external_clock_pin_;
-  ledc_channel.speed_mode = LEDC_LOW_SPEED_MODE;
-  ledc_channel.channel = LEDC_CHANNEL_0;
-  ledc_channel.timer_sel = LEDC_TIMER_0;
-  ledc_channel.duty = 2;  // 50% duty cycle (2 sur 4 niveaux avec 2 bits)
-  ledc_channel.hpoint = 0;
-  
-  ret = ledc_channel_config(&ledc_channel);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "LEDC channel config failed: 0x%x", ret);
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "✅ External clock started: GPIO%d @ %u Hz", 
-           this->external_clock_pin_, this->external_clock_frequency_);
-  
-  // Petite pause pour stabiliser l'horloge
-  delay(50);
-  
-  return true;
-}
+AVAILABLE_SENSORS = {}
 
-bool MipiDsiCam::create_sensor_driver_() {
-  ESP_LOGI(TAG, "Creating driver for: %s", this->sensor_type_.c_str());
-  
-  this->sensor_driver_ = create_sensor_driver(this->sensor_type_, this);
-  
-  if (this->sensor_driver_ == nullptr) {
-    ESP_LOGE(TAG, "Unknown or unavailable sensor: %s", this->sensor_type_.c_str());
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "Driver created for: %s", this->sensor_driver_->get_name());
-  return true;
-}
-
-bool MipiDsiCam::init_sensor_() {
-  if (!this->sensor_driver_) {
-    ESP_LOGE(TAG, "No sensor driver");
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "Init sensor: %s", this->sensor_driver_->get_name());
-  
-  this->width_ = this->sensor_driver_->get_width();
-  this->height_ = this->sensor_driver_->get_height();
-  this->lane_count_ = this->sensor_driver_->get_lane_count();
-  this->bayer_pattern_ = this->sensor_driver_->get_bayer_pattern();
-  this->lane_bitrate_mbps_ = this->sensor_driver_->get_lane_bitrate_mbps();
-  
-  ESP_LOGI(TAG, "  Resolution: %ux%u", this->width_, this->height_);
-  ESP_LOGI(TAG, "  Lanes: %u", this->lane_count_);
-  ESP_LOGI(TAG, "  Bayer: %u", this->bayer_pattern_);
-  ESP_LOGI(TAG, "  Bitrate: %u Mbps", this->lane_bitrate_mbps_);
-  
-  uint16_t pid = 0;
-  esp_err_t ret = this->sensor_driver_->read_id(&pid);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to read sensor ID");
-    return false;
-  }
-  
-  if (pid != this->sensor_driver_->get_pid()) {
-    ESP_LOGE(TAG, "Wrong PID: 0x%04X (expected 0x%04X)", 
-             pid, this->sensor_driver_->get_pid());
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "✅ Sensor ID OK: 0x%04X", pid);
-  
-  ret = this->sensor_driver_->init();
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Sensor init failed: %d", ret);
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "Sensor initialized");
-  
-  delay(200);
-  ESP_LOGI(TAG, "Sensor stabilized");
-  
-  return true;
-}
-
-bool MipiDsiCam::init_ldo_() {
-  ESP_LOGI(TAG, "Init LDO MIPI");
-  
-  esp_ldo_channel_config_t ldo_config = {
-    .chan_id = 3,
-    .voltage_mv = 2500,
-  };
-  
-  esp_err_t ret = esp_ldo_acquire_channel(&ldo_config, &this->ldo_handle_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "LDO failed: %d", ret);
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "LDO OK (2.5V)");
-  return true;
-}
-
-bool MipiDsiCam::init_csi_() {
-  ESP_LOGI(TAG, "Init MIPI-CSI");
-  
-  esp_cam_ctlr_csi_config_t csi_config = {};
-  csi_config.ctlr_id = 0;
-  csi_config.clk_src = MIPI_CSI_PHY_CLK_SRC_DEFAULT;
-  csi_config.h_res = this->width_;
-  csi_config.v_res = this->height_;
-  csi_config.lane_bit_rate_mbps = this->lane_bitrate_mbps_;
-  csi_config.input_data_color_type = CAM_CTLR_COLOR_RAW8;
-  csi_config.output_data_color_type = CAM_CTLR_COLOR_RGB565;
-  csi_config.data_lane_num = this->lane_count_;
-  csi_config.byte_swap_en = false;
-  csi_config.queue_items = 10;
-  
-  esp_err_t ret = esp_cam_new_csi_ctlr(&csi_config, &this->csi_handle_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "CSI failed: %d", ret);
-    return false;
-  }
-  
-  esp_cam_ctlr_evt_cbs_t callbacks = {
-    .on_get_new_trans = MipiDsiCam::on_csi_new_frame_,
-    .on_trans_finished = MipiDsiCam::on_csi_frame_done_,
-  };
-  
-  ret = esp_cam_ctlr_register_event_callbacks(this->csi_handle_, &callbacks, this);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Callbacks failed: %d", ret);
-    return false;
-  }
-  
-  ret = esp_cam_ctlr_enable(this->csi_handle_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Enable CSI failed: %d", ret);
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "CSI OK");
-  return true;
-}
-
-bool MipiDsiCam::init_isp_() {
-  ESP_LOGI(TAG, "Init ISP");
-  
-  uint32_t isp_clock_hz = 120000000;
-  
-  esp_isp_processor_cfg_t isp_config = {};
-  isp_config.clk_src = ISP_CLK_SRC_DEFAULT;
-  isp_config.input_data_source = ISP_INPUT_DATA_SOURCE_CSI;
-  isp_config.input_data_color_type = ISP_COLOR_RAW8;
-  isp_config.output_data_color_type = ISP_COLOR_RGB565;
-  isp_config.h_res = this->width_;
-  isp_config.v_res = this->height_;
-  isp_config.has_line_start_packet = false;
-  isp_config.has_line_end_packet = false;
-  isp_config.clk_hz = isp_clock_hz;
-  isp_config.bayer_order = (color_raw_element_order_t)this->bayer_pattern_;
-  
-  esp_err_t ret = esp_isp_new_processor(&isp_config, &this->isp_handle_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "ISP creation failed: 0x%x", ret);
-    return false;
-  }
-  
-  ret = esp_isp_enable(this->isp_handle_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "ISP enable failed: 0x%x", ret);
-    esp_isp_del_processor(this->isp_handle_);
-    this->isp_handle_ = nullptr;
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "ISP OK");
-  return true;
-}
-
-bool MipiDsiCam::allocate_buffer_() {
-  this->frame_buffer_size_ = this->width_ * this->height_ * 2;
-  
-  this->frame_buffers_[0] = (uint8_t*)heap_caps_aligned_alloc(
-    64, this->frame_buffer_size_, MALLOC_CAP_SPIRAM
-  );
-  
-  this->frame_buffers_[1] = (uint8_t*)heap_caps_aligned_alloc(
-    64, this->frame_buffer_size_, MALLOC_CAP_SPIRAM
-  );
-  
-  if (!this->frame_buffers_[0] || !this->frame_buffers_[1]) {
-    ESP_LOGE(TAG, "Buffer alloc failed");
-    return false;
-  }
-  
-  this->current_frame_buffer_ = this->frame_buffers_[0];
-  
-  ESP_LOGI(TAG, "Buffers: 2x%u bytes", this->frame_buffer_size_);
-  return true;
-}
-
-bool IRAM_ATTR MipiDsiCam::on_csi_new_frame_(
-  esp_cam_ctlr_handle_t handle,
-  esp_cam_ctlr_trans_t *trans,
-  void *user_data
-) {
-  MipiDsiCam *cam = (MipiDsiCam*)user_data;
-  trans->buffer = cam->frame_buffers_[cam->buffer_index_];
-  trans->buflen = cam->frame_buffer_size_;
-  return false;
-}
-
-bool IRAM_ATTR MipiDsiCam::on_csi_frame_done_(
-  esp_cam_ctlr_handle_t handle,
-  esp_cam_ctlr_trans_t *trans,
-  void *user_data
-) {
-  MipiDsiCam *cam = (MipiDsiCam*)user_data;
-  
-  if (trans->received_size > 0) {
-    cam->frame_ready_ = true;
-    cam->buffer_index_ = (cam->buffer_index_ + 1) % 2;
-    cam->total_frames_received_++;
-  }
-  
-  return false;
-}
-
-bool MipiDsiCam::start_streaming() {
-  if (!this->initialized_) {
-    ESP_LOGE(TAG, "Cannot start: not initialized");
-    return false;
-  }
-  
-  if (this->streaming_) {
-    ESP_LOGW(TAG, "Already streaming");
-    return true;
-  }
-  
-  ESP_LOGI(TAG, "🎬 Starting streaming...");
-  
-  this->total_frames_received_ = 0;
-  this->last_frame_log_time_ = millis();
-  
-  if (this->sensor_driver_) {
-    esp_err_t ret = this->sensor_driver_->start_stream();
-    if (ret != ESP_OK) {
-      ESP_LOGE(TAG, "Sensor start failed: %d", ret);
-      return false;
-    }
-    delay(100);
-  }
-  
-  esp_err_t ret = esp_cam_ctlr_start(this->csi_handle_);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "CSI start failed: %d", ret);
-    return false;
-  }
-  
-  this->streaming_ = true;
-  ESP_LOGI(TAG, "✅ Streaming active");
-  return true;
-}
-
-bool MipiDsiCam::stop_streaming() {
-  if (!this->streaming_) {
-    return true;
-  }
-  
-  esp_cam_ctlr_stop(this->csi_handle_);
-  
-  if (this->sensor_driver_) {
-    this->sensor_driver_->stop_stream();
-  }
-  
-  this->streaming_ = false;
-  ESP_LOGI(TAG, "Streaming stopped");
-  return true;
-}
-
-bool MipiDsiCam::capture_frame() {
-  if (!this->streaming_) {
-    return false;
-  }
-  
-  bool was_ready = this->frame_ready_;
-  if (was_ready) {
-    this->frame_ready_ = false;
-    uint8_t last_buffer = (this->buffer_index_ + 1) % 2;
-    this->current_frame_buffer_ = this->frame_buffers_[last_buffer];
-  }
-  
-  return was_ready;
-}
-
-void MipiDsiCam::loop() {
-  if (this->streaming_) {
-    static uint32_t ready_count = 0;
-    static uint32_t not_ready_count = 0;
+def load_sensors():
+    import logging
+    logger = logging.getLogger(__name__)
     
-    if (this->frame_ready_) {
-      ready_count++;
-    } else {
-      not_ready_count++;
-    }
+    try:
+        from .sensor_mipi_csi_sc202cs import get_sensor_info, get_driver_code
+        AVAILABLE_SENSORS['sc202cs'] = {
+            'info': get_sensor_info(),
+            'driver': get_driver_code
+        }
+        logger.info("SC202CS sensor loaded")
+    except ImportError as e:
+        logger.warning(f"SC202CS sensor not available: {e}")
+    except Exception as e:
+        logger.error(f"Error loading SC202CS: {e}")
     
-    uint32_t now = millis();
-    if (now - this->last_frame_log_time_ >= 3000) {
-      float sensor_fps = this->total_frames_received_ / 3.0f;
-      float ready_rate = (float)ready_count / (float)(ready_count + not_ready_count) * 100.0f;
-      
-      ESP_LOGI(TAG, "📊 Sensor: %.1f fps | frame_ready: %.1f%%", 
-               sensor_fps, ready_rate);
-      
-      this->total_frames_received_ = 0;
-      this->last_frame_log_time_ = now;
-      ready_count = 0;
-      not_ready_count = 0;
+    try:
+        from .sensor_mipi_csi_sc2336 import get_sensor_info, get_driver_code
+        AVAILABLE_SENSORS['sc2336'] = {
+            'info': get_sensor_info(),
+            'driver': get_driver_code
+        }
+        logger.info("SC2336 sensor loaded")
+    except ImportError as e:
+        logger.warning(f"SC2336 sensor not available: {e}")
+    except Exception as e:
+        logger.error(f"Error loading SC2336: {e}")
+
+    try:
+        from .sensor_mipi_csi_ov5647 import get_sensor_info, get_driver_code
+        AVAILABLE_SENSORS['ov5647'] = {
+            'info': get_sensor_info(),
+            'driver': get_driver_code
+        }
+        logger.info("ov5647 sensor loaded")
+    except ImportError as e:
+        logger.warning(f"ov5647 sensor not available: {e}")
+    except Exception as e:
+        logger.error(f"Error loading ov5647: {e}")
+    
+    if not AVAILABLE_SENSORS:
+        raise cv.Invalid(
+            "Aucun sensor MIPI disponible. "
+            "Assurez-vous que les fichiers sensor_mipi_csi_*.py sont dans components/mipi_dsi_cam/"
+        )
+    
+    logger.info(f"Sensors disponibles: {', '.join(AVAILABLE_SENSORS.keys())}")
+
+load_sensors()
+
+def validate_sensor(value):
+    if value not in AVAILABLE_SENSORS:
+        available = ', '.join(AVAILABLE_SENSORS.keys())
+        raise cv.Invalid(
+            f"Sensor '{value}' non disponible. Disponibles: {available}"
+        )
+    return value
+
+def validate_resolution(value):
+    if isinstance(value, str):
+        value_upper = value.upper()
+        if value_upper == "720P":
+            return RESOLUTIONS["720P"]
+        elif value_upper in ["800X640", "800x640"]:
+            return RESOLUTIONS["800x640"]
+        else:
+            raise cv.Invalid(
+                f"Résolution '{value}' non supportée. Disponibles: 720P, 800x640"
+            )
+    raise cv.Invalid("Le format de résolution doit être '720P' ou '800x640'")
+
+CONFIG_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.declare_id(MipiDsiCam),
+        cv.Optional(CONF_NAME, default="MIPI Camera"): cv.string,
+        cv.Optional(CONF_EXTERNAL_CLOCK_PIN): cv.Any(  # ← Maintenant optionnel !
+            cv.int_range(min=0, max=50),
+            pins.internal_gpio_output_pin_schema
+        ),
+        cv.Optional(CONF_FREQUENCY, default=24000000): cv.int_range(min=6000000, max=40000000),
+        cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,
+        cv.Required(CONF_SENSOR): validate_sensor,
+        cv.Optional(CONF_LANE): cv.int_range(min=1, max=4),
+        cv.Optional(CONF_ADDRESS_SENSOR): cv.i2c_address,
+        cv.Optional(CONF_RESOLUTION): validate_resolution,  # Si non spécifié, utilise la résolution native du capteur
+        cv.Optional(CONF_PIXEL_FORMAT, default="RGB565"): cv.enum(PIXEL_FORMATS, upper=True),
+        cv.Optional(CONF_FRAMERATE): cv.int_range(min=1, max=60),
+        cv.Optional(CONF_JPEG_QUALITY, default=10): cv.int_range(min=1, max=63),
     }
-  }
-}
+).extend(cv.COMPONENT_SCHEMA).extend(i2c.i2c_device_schema(0x36))
 
-void MipiDsiCam::dump_config() {
-  ESP_LOGCONFIG(TAG, "MIPI Camera:");
-  if (this->sensor_driver_) {
-    ESP_LOGCONFIG(TAG, "  Sensor: %s", this->sensor_driver_->get_name());
-    ESP_LOGCONFIG(TAG, "  PID: 0x%04X", this->sensor_driver_->get_pid());
-  } else {
-    ESP_LOGCONFIG(TAG, "  Sensor: %s (driver not loaded)", this->sensor_type_.c_str());
-  }
-  ESP_LOGCONFIG(TAG, "  Resolution: %ux%u", this->width_, this->height_);
-  ESP_LOGCONFIG(TAG, "  Format: RGB565");
-  ESP_LOGCONFIG(TAG, "  Lanes: %u", this->lane_count_);
-  ESP_LOGCONFIG(TAG, "  Bayer: %u", this->bayer_pattern_);
-  
-  if (this->external_clock_pin_ >= 0) {
-    ESP_LOGCONFIG(TAG, "  External Clock: GPIO%d @ %u Hz", 
-                  this->external_clock_pin_, this->external_clock_frequency_);
-  } else {
-    ESP_LOGCONFIG(TAG, "  External Clock: Internal oscillator");
-  }
-  
-  ESP_LOGCONFIG(TAG, "  Streaming: %s", this->streaming_ ? "YES" : "NO");
-}
 
-}  // namespace mipi_dsi_cam
-}  // namespace esphome
+async def to_code(config):
+    var = cg.new_Pvariable(config[CONF_ID])
+    await cg.register_component(var, config)
+    await i2c.register_i2c_device(var, config)
+    
+    cg.add(var.set_name(config[CONF_NAME]))
+    
+    # Horloge externe (optionnelle)
+    if CONF_EXTERNAL_CLOCK_PIN in config:
+        ext_clock_pin_config = config[CONF_EXTERNAL_CLOCK_PIN]
+        if isinstance(ext_clock_pin_config, int):
+            cg.add(var.set_external_clock_pin(ext_clock_pin_config))
+        else:
+            pin_num = ext_clock_pin_config[pins.CONF_NUMBER]
+            cg.add(var.set_external_clock_pin(pin_num))
+    else:
+        # Pas d'horloge externe - le module utilise son oscillateur interne
+        cg.add(var.set_external_clock_pin(-1))
+    
+    cg.add(var.set_external_clock_frequency(config[CONF_FREQUENCY]))
+    
+    # Récupérer les infos du capteur
+    sensor_name = config[CONF_SENSOR]
+    sensor_info = AVAILABLE_SENSORS[sensor_name]['info']
+    
+    # Utiliser la résolution spécifiée ou la résolution native du capteur
+    if CONF_RESOLUTION in config:
+        width, height = config[CONF_RESOLUTION]
+        resolution_source = "configured"
+    else:
+        width = sensor_info['width']
+        height = sensor_info['height']
+        resolution_source = "native"
+    
+    # Utiliser les paramètres du capteur ou ceux spécifiés par l'utilisateur
+    lane_count = config.get(CONF_LANE, sensor_info['lane_count'])
+    sensor_address = config.get(CONF_ADDRESS_SENSOR, sensor_info['i2c_address'])
+    framerate = config.get(CONF_FRAMERATE, sensor_info['fps'])
+    
+    cg.add(var.set_sensor_type(sensor_name))
+    cg.add(var.set_sensor_address(sensor_address))
+    cg.add(var.set_lane_count(lane_count))
+    cg.add(var.set_resolution(width, height))
+    cg.add(var.set_bayer_pattern(sensor_info['bayer_pattern']))
+    cg.add(var.set_lane_bitrate(sensor_info['lane_bitrate_mbps']))
+    
+    cg.add(var.set_pixel_format(config[CONF_PIXEL_FORMAT]))
+    cg.add(var.set_jpeg_quality(config[CONF_JPEG_QUALITY]))
+    cg.add(var.set_framerate(framerate))
+    
+    if CONF_RESET_PIN in config:
+        reset_pin = await cg.gpio_pin_expression(config[CONF_RESET_PIN])
+        cg.add(var.set_reset_pin(reset_pin))
+    
+    import os
+    
+    all_drivers_code = ""
+    
+    for sensor_id, sensor_data in AVAILABLE_SENSORS.items():
+        driver_code_func = sensor_data['driver']
+        all_drivers_code += driver_code_func() + "\n\n"
+    
+    factory_code = f'''
+namespace esphome {{
+namespace mipi_dsi_cam {{
 
-#endif  // USE_ESP32_VARIANT_ESP32P4
+inline ISensorDriver* create_sensor_driver(const std::string& sensor_type, i2c::I2CDevice* i2c) {{
+'''
+    
+    for sensor_id in AVAILABLE_SENSORS.keys():
+        sensor_upper = sensor_id.upper()
+        factory_code += f'''
+    if (sensor_type == "{sensor_id}") {{
+        return new {sensor_upper}Adapter(i2c);
+    }}
+'''
+    
+    factory_code += f'''
+    
+    ESP_LOGE("mipi_dsi_cam", "Unknown sensor type: %s", sensor_type.c_str());
+    return nullptr;
+}}
+
+}}
+}}
+'''
+    
+    complete_code = all_drivers_code + factory_code
+    
+    component_dir = os.path.dirname(__file__)
+    generated_file_path = os.path.join(component_dir, "mipi_dsi_cam_drivers_generated.h")
+    
+    with open(generated_file_path, 'w') as f:
+        f.write("#ifndef MIPI_DSI_CAM_DRIVERS_GENERATED_H\n")
+        f.write("#define MIPI_DSI_CAM_DRIVERS_GENERATED_H\n\n")
+        f.write(complete_code)
+        f.write("\n#endif\n")
+    
+    cg.add_build_flag("-DBOARD_HAS_PSRAM")
+    cg.add_build_flag("-DCONFIG_CAMERA_CORE0=1")
+    cg.add_build_flag("-DUSE_ESP32_VARIANT_ESP32P4")
+    
+    ext_clock_info = f"{config.get(CONF_EXTERNAL_CLOCK_PIN, 'internal')}"
+    cg.add(cg.RawExpression(f'''
+        ESP_LOGI("compile", "Camera configuration:");
+        ESP_LOGI("compile", "  Sensor: {sensor_name}");
+        ESP_LOGI("compile", "  Resolution: {width}x{height} ({resolution_source})");
+        ESP_LOGI("compile", "  Lanes: {lane_count}");
+        ESP_LOGI("compile", "  Address: 0x{sensor_address:02X}");
+        ESP_LOGI("compile", "  Format: {config[CONF_PIXEL_FORMAT]}");
+        ESP_LOGI("compile", "  FPS: {framerate}");
+        ESP_LOGI("compile", "  External Clock: {ext_clock_info}");
+    '''))
