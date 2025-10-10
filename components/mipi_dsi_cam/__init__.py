@@ -116,29 +116,38 @@ def validate_resolution(value):
             )
     raise cv.Invalid("Le format de résolution doit être '720P' ou '800x640'")
 
+# Marqueur spécial pour indiquer "pas d'horloge externe"
+NO_CLOCK = "__NO_EXTERNAL_CLOCK__"
+
 def validate_external_clock_pin(value):
-    """Valide le pin d'horloge externe - accepte none, false, ou un GPIO valide"""
-    if value is None or value is False:
-        return None
+    """Valide le pin d'horloge externe ou retourne un marqueur si désactivé"""
+    # Si pas de valeur
+    if value is None:
+        return NO_CLOCK
+    
+    # Si c'est le booléen False
+    if value is False:
+        return NO_CLOCK
+    
+    # Si c'est une string "none" ou "false" (case insensitive)
     if isinstance(value, str):
-        value_lower = value.lower()
-        if value_lower in ["none", "false"]:
-            return None
-    # Si ce n'est ni None ni false, valider comme pin normal
-    return value
+        lower_val = value.lower()
+        if lower_val in ["none", "false", "null"]:
+            return NO_CLOCK
+    
+    # Si c'est un entier, valider la plage
+    if isinstance(value, int):
+        return cv.int_range(min=0, max=50)(value)
+    
+    # Sinon, c'est probablement un dictionnaire de config de pin
+    # On le passe à travers le validateur de pin
+    return pins.internal_gpio_output_pin_schema(value)
 
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(MipiDsiCam),
         cv.Optional(CONF_NAME, default="MIPI Camera"): cv.string,
-        cv.Optional(CONF_EXTERNAL_CLOCK_PIN): cv.All(
-            validate_external_clock_pin,
-            cv.Any(
-                None,
-                cv.int_range(min=0, max=50),
-                pins.internal_gpio_output_pin_schema
-            )
-        ),
+        cv.Optional(CONF_EXTERNAL_CLOCK_PIN): validate_external_clock_pin,
         cv.Optional(CONF_FREQUENCY, default=24000000): cv.int_range(min=6000000, max=40000000),
         cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,
         cv.Required(CONF_SENSOR): validate_sensor,
@@ -159,16 +168,25 @@ async def to_code(config):
     
     cg.add(var.set_name(config[CONF_NAME]))
     
-    # Gérer external_clock_pin (optionnel)
-    if CONF_EXTERNAL_CLOCK_PIN in config and config[CONF_EXTERNAL_CLOCK_PIN] is not None:
-        ext_clock_pin_config = config[CONF_EXTERNAL_CLOCK_PIN]
-        if isinstance(ext_clock_pin_config, int):
-            cg.add(var.set_external_clock_pin(ext_clock_pin_config))
-        else:
-            pin_num = ext_clock_pin_config[pins.CONF_NUMBER]
+    # Gérer external_clock_pin
+    if CONF_EXTERNAL_CLOCK_PIN in config:
+        ext_clock_value = config[CONF_EXTERNAL_CLOCK_PIN]
+        
+        # Si c'est notre marqueur "pas d'horloge"
+        if ext_clock_value == NO_CLOCK:
+            cg.add(var.set_external_clock_pin(-1))
+        # Si c'est un entier
+        elif isinstance(ext_clock_value, int):
+            cg.add(var.set_external_clock_pin(ext_clock_value))
+        # Si c'est un dictionnaire (pin config)
+        elif isinstance(ext_clock_value, dict):
+            pin_num = ext_clock_value[pins.CONF_NUMBER]
             cg.add(var.set_external_clock_pin(pin_num))
+        else:
+            # Fallback
+            cg.add(var.set_external_clock_pin(-1))
     else:
-        # Pas d'horloge externe
+        # Pas de clé external_clock_pin dans le config
         cg.add(var.set_external_clock_pin(-1))
     
     cg.add(var.set_external_clock_frequency(config[CONF_FREQUENCY]))
@@ -255,7 +273,8 @@ inline ISensorDriver* create_sensor_driver(const std::string& sensor_type, i2c::
     cg.add_build_flag("-DUSE_ESP32_VARIANT_ESP32P4")
     
     # Message de log pour la configuration
-    ext_clock_msg = "disabled" if (CONF_EXTERNAL_CLOCK_PIN not in config or config[CONF_EXTERNAL_CLOCK_PIN] is None) else str(config.get(CONF_EXTERNAL_CLOCK_PIN))
+    has_ext_clock = CONF_EXTERNAL_CLOCK_PIN in config and config[CONF_EXTERNAL_CLOCK_PIN] != NO_CLOCK
+    ext_clock_msg = "enabled" if has_ext_clock else "disabled"
     
     cg.add(cg.RawExpression(f'''
         ESP_LOGI("compile", "Camera configuration:");
