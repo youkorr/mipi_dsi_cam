@@ -115,7 +115,6 @@ class MipiDsiCam : public Component, public i2c::I2CDevice {
   isp_proc_handle_t isp_handle_{nullptr};
   esp_ldo_channel_handle_t ldo_handle_{nullptr};
   
-  bool start_external_clock_();  // ⭐ NOUVEAU !
   bool create_sensor_driver_();
   bool init_sensor_();
   bool init_ldo_();
