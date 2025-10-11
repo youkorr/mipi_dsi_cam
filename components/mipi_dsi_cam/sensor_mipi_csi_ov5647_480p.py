@@ -4,8 +4,8 @@ SENSOR_INFO = {
     'pid': 0x5647,
     'i2c_address': 0x36,
     'lane_count': 2,
-    'bayer_pattern': 0,  # BGGR (OV5647 datasheet: BG/GR pattern)
-    'lane_bitrate_mbps': 400,
+    'bayer_pattern': 0,  # BGGR (comme tab5_camera)
+    'lane_bitrate_mbps': 400,  # 400 Mbps
     'width': 800,
     'height': 480,
     'fps': 60,
@@ -23,47 +23,31 @@ REGISTERS = {
     'exposure_l': 0x3502,
 }
 
-# Séquence OV5647 800x480 RAW8 60fps avec 2 lanes
-# IDI Clock: 100 MHz, MIPI CSI Line Rate: 400 Mbps
+# Séquence basée sur tab5_camera adaptée pour 800x480@60fps
 INIT_SEQUENCE = [
-    # Stop streaming et reset
-    (0x0100, 0x00, 0),   # Stream off
-    (0x0103, 0x01, 10),  # Software reset, attendre 10ms
-    
-    # MIPI control
-    (0x4800, 0x01, 0),   # MIPI control
-    
-    # System control
-    (0x3034, 0x18, 0),   # RAW8 mode
-    (0x3035, 0x21, 0),   # System clock divider (pour 60fps)
-    (0x3036, 0x80, 0),   # PLL multiplier: 128 (0x80)
+    # === PHASE 1: Reset et config de base (IDENTIQUE à tab5_camera) ===
+    (0x0103, 0x01, 10),  # Software reset - WAIT 10ms (CRITIQUE!)
+    (0x0100, 0x00, 0),   # Sleep mode OFF
+    (0x3035, 0x41, 0),   # System clock config
     (0x303c, 0x11, 0),   # PLLS control
     
-    # System control
+    # === PHASE 2: Configuration 800x480@60fps ===
+    (0x3034, 0x18, 0),   # RAW8 mode (OV5647_8BIT_MODE)
+    (0x3036, 0x80, 0),   # PLL multiplier: 128 (pour 100MHz IDI clock)
     (0x3106, 0xf5, 0),
-    
-    # Format control
     (0x3821, 0x03, 0),   # Horizontal binning
     (0x3820, 0x41, 0),   # Vertical binning
     (0x3827, 0xec, 0),
-    
-    # Analog control
     (0x370c, 0x0f, 0),
     (0x3612, 0x59, 0),
     (0x3618, 0x00, 0),
     
     # ISP control
     (0x5000, 0xff, 0),   # Enable tous les ISP blocks
-    
-    # Lens shading control
     (0x583e, 0xf0, 0),   # LSC max gain
     (0x583f, 0x20, 0),   # LSC min gain
-    
-    # AWB control
     (0x5002, 0x41, 0),
     (0x5003, 0x08, 0),
-    
-    # Special digital effects
     (0x5a00, 0x08, 0),
     
     # System control
@@ -75,69 +59,53 @@ INIT_SEQUENCE = [
     (0x3018, 0x44, 0),
     (0x301c, 0xf8, 0),
     (0x301d, 0xf0, 0),
-    
-    # AEC/AGC control
     (0x3a18, 0x00, 0),
     (0x3a19, 0xf8, 0),
-    
-    # 50/60Hz detection
     (0x3c01, 0x80, 0),
     (0x3c00, 0x40, 0),
-    
-    # BLC control
     (0x3b07, 0x0c, 0),
     
-    # Timing control - HTS (Horizontal Total Size)
-    # 1896 pixels = 0x0768
-    (0x380c, 0x07, 0),   # HTS high byte
-    (0x380d, 0x68, 0),   # HTS low byte
+    # Timing - HTS/VTS pour 60fps
+    (0x380c, 0x07, 0),   # HTS H: 1896 pixels
+    (0x380d, 0x68, 0),   # HTS L
+    (0x380e, 0x02, 0),   # VTS H: 738 lines (pour 60fps au lieu de 984 pour 50fps)
+    (0x380f, 0xe2, 0),   # VTS L
     
-    # Timing control - VTS (Vertical Total Size)
-    # Pour 60fps avec 800x480: 738 lines = 0x02E2
-    (0x380e, 0x02, 0),   # VTS high byte
-    (0x380f, 0xe2, 0),   # VTS low byte
-    
-    # Horizontal and vertical subsample
-    (0x3814, 0x31, 0),   # Horizontal odd subsample increment
-    (0x3815, 0x31, 0),   # Vertical odd subsample increment
-    
-    # Timing control
+    # Subsample
+    (0x3814, 0x31, 0),   # Horizontal odd subsample
+    (0x3815, 0x31, 0),   # Vertical odd subsample
     (0x3708, 0x64, 0),
     (0x3709, 0x52, 0),
     
-    # X address start: 500 (0x01F4)
-    (0x3800, 0x01, 0),   # X address start high byte
-    (0x3801, 0xf4, 0),   # X address start low byte
+    # Window - X start: 500 (identique à 640p)
+    (0x3800, 0x01, 0),   # X start H
+    (0x3801, 0xf4, 0),   # X start L (500)
     
-    # Y address start: 180 (0x00B4) - centré pour 480 lignes
-    (0x3802, 0x00, 0),   # Y address start high byte
-    (0x3803, 0xb4, 0),   # Y address start low byte
+    # Window - Y start: 180 (centré pour 480 lignes)
+    (0x3802, 0x00, 0),   # Y start H
+    (0x3803, 0xb4, 0),   # Y start L (180 = 0xB4)
     
-    # X address end: 2623 (0x0A3F)
-    (0x3804, 0x0a, 0),   # X address end high byte
-    (0x3805, 0x3f, 0),   # X address end low byte
+    # Window - X end: 2623 (identique à 640p)
+    (0x3804, 0x0a, 0),   # X end H
+    (0x3805, 0x3f, 0),   # X end L (2623)
     
-    # Y address end: 1613 (0x064D) - pour obtenir 480 lignes
-    (0x3806, 0x06, 0),   # Y address end high byte
-    (0x3807, 0x4d, 0),   # Y address end low byte
+    # Window - Y end: 1613 (180 + 480*3 - 1 pour binning 3:1)
+    (0x3806, 0x06, 0),   # Y end H
+    (0x3807, 0x4d, 0),   # Y end L (1613 = 0x64D)
     
-    # Output width: 800 (0x0320)
-    (0x3808, 0x03, 0),   # Output horizontal width high byte
-    (0x3809, 0x20, 0),   # Output horizontal width low byte
+    # Output size: 800x480
+    (0x3808, 0x03, 0),   # Width H (800 = 0x320)
+    (0x3809, 0x20, 0),   # Width L
+    (0x380a, 0x01, 0),   # Height H (480 = 0x1E0)
+    (0x380b, 0xe0, 0),   # Height L
     
-    # Output height: 480 (0x01E0)
-    (0x380a, 0x01, 0),   # Output vertical height high byte
-    (0x380b, 0xe0, 0),   # Output vertical height low byte
+    # Offset
+    (0x3810, 0x00, 0),   # H offset H
+    (0x3811, 0x08, 0),   # H offset L
+    (0x3812, 0x00, 0),   # V offset H
+    (0x3813, 0x00, 0),   # V offset L
     
-    # Timing H offset: 8 (0x0008)
-    (0x3810, 0x00, 0),   # Timing hoffset high byte
-    (0x3811, 0x08, 0),   # Timing hoffset low byte
-    
-    # Timing V offset: 0 (0x0000)
-    (0x3812, 0x00, 0),   # Timing voffset high byte
-    (0x3813, 0x00, 0),   # Timing voffset low byte
-    
-    # Analog control registers
+    # Analog control
     (0x3630, 0x2e, 0),
     (0x3632, 0xe2, 0),
     (0x3633, 0x23, 0),
@@ -159,7 +127,7 @@ INIT_SEQUENCE = [
     (0x3f06, 0x10, 0),
     (0x3f01, 0x0a, 0),
     
-    # AEC/AGC control registers
+    # AEC/AGC control
     (0x3a08, 0x01, 0),
     (0x3a09, 0x27, 0),
     (0x3a0a, 0x00, 0),
@@ -186,7 +154,7 @@ INIT_SEQUENCE = [
     (0x4051, 0x8f, 0),
 ]
 
-# Valeurs de gain identiques au fichier original
+# Tables de gain (identiques à la version 640p)
 GAIN_VALUES = [
     1000, 1062, 1125, 1187, 1250, 1312, 1375, 1437,
     1500, 1562, 1625, 1687, 1750, 1812, 1875, 1937,
@@ -265,7 +233,7 @@ public:
     {SENSOR_INFO['name'].upper()}Driver(esphome::i2c::I2CDevice* i2c) : i2c_(i2c) {{}}
     
     esp_err_t init() {{
-        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} - 800x480 RAW8 60fps");
+        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} - 800x480@60fps (from tab5_camera)");
         
         for (size_t i = 0; i < sizeof({SENSOR_INFO['name']}_init_sequence) / sizeof({SENSOR_INFO['name'].upper()}InitRegister); i++) {{
             const auto& reg = {SENSOR_INFO['name']}_init_sequence[i];
@@ -281,7 +249,7 @@ public:
             }}
         }}
         
-        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized - 2 lanes @ 400Mbps");
+        ESP_LOGI(TAG, "✅ {SENSOR_INFO['name'].upper()} initialized - 2 lanes @ 400Mbps");
         return ESP_OK;
     }}
     
@@ -354,10 +322,11 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        if (!i2c_->write(addr, 2)) {{
+        // IMPORTANT: Write sans stop bit, puis read avec stop bit
+        if (!i2c_->write(addr, 2, false)) {{  // false = pas de STOP
             return ESP_FAIL;
         }}
-        if (!i2c_->read(value, 1)) {{
+        if (!i2c_->read(value, 1)) {{  // avec STOP automatique
             return ESP_FAIL;
         }}
         return ESP_OK;
@@ -372,7 +341,7 @@ class {SENSOR_INFO['name'].upper()}Adapter : public ISensorDriver {{
 public:
     {SENSOR_INFO['name'].upper()}Adapter(i2c::I2CDevice* i2c) : driver_(i2c) {{}}
     
-    const char* get_name() const override {{ return "{SENSOR_INFO['name']}"; }}
+    const char* get_name() const override {{ return "{SENSOR_INFO['name']} (tab5)"; }}
     uint16_t get_pid() const override {{ return 0x{SENSOR_INFO['pid']:04X}; }}
     uint8_t get_i2c_address() const override {{ return 0x{SENSOR_INFO['i2c_address']:02X}; }}
     uint8_t get_lane_count() const override {{ return {SENSOR_INFO['lane_count']}; }}
