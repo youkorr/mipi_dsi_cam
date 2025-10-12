@@ -3,11 +3,11 @@ SENSOR_INFO = {
     'manufacturer': 'OmniVision',
     'pid': 0x5602,
     'i2c_address': 0x36,
-    'lane_count': 2,  # 2 lanes pour 1280x800
+    'lane_count': 1,  # 1 lane pour le capteur original
     'bayer_pattern': 1,  # GBRG (ESP_CAM_SENSOR_BAYER_GBRG)
-    'lane_bitrate_mbps': 408,  # ~408 Mbps (81.67MHz * 5)
-    'width': 1280,
-    'height': 800,
+    'lane_bitrate_mbps': 400,  # 100MHz * 4 = 400 Mbps
+    'width': 1288,
+    'height': 728,
     'fps': 30,
 }
 
@@ -29,22 +29,23 @@ REGISTERS = {
     'group_hold': 0x3208,
 }
 
-# Séquence d'initialisation pour OV02C10 - 1280x800 @ 30fps, 2 lanes
+# Séquence d'initialisation ORIGINALE pour OV02C10 - 1288x728 @ 30fps, 1 lane
+# Basée sur ov02c10_input_24M_MIPI_1lane_raw10_1288x728_30fps
 INIT_SEQUENCE = [
     # Reset et configuration de base
     (0x0100, 0x00, 0),   # Stream off
     (0x0103, 0x01, 10),  # Software reset, wait 10ms
     
-    # System configuration
+    # PLL Configuration
     (0x0301, 0x08, 0),   # PLL pre-divider
     (0x0303, 0x06, 0),   # PLL divider
     (0x0304, 0x01, 0),   # PLL multiplier LSB
-    (0x0305, 0x90, 0),   # PLL multiplier MSB (0x190 = 400)
+    (0x0305, 0x77, 0),   # PLL multiplier MSB (0x177 = 375)
     (0x0313, 0x40, 0),   # PLL control
     (0x031c, 0x4f, 0),   # System control
     
-    # MIPI configuration
-    (0x3016, 0x32, 0),   # MIPI control - 2 lanes
+    # MIPI configuration - 1 LANE
+    (0x3016, 0x12, 0),   # MIPI control - 1 lane
     (0x301b, 0xf0, 0),   # MIPI timing
     (0x3020, 0x97, 0),   # MIPI control
     (0x3021, 0x23, 0),   # MIPI control
@@ -60,11 +61,11 @@ INIT_SEQUENCE = [
     (0x303f, 0x03, 0),
     
     # Exposure et gain initiaux
-    (0x3501, 0x10, 0),   # Exposition moyenne H
-    (0x3502, 0x6c, 0),   # Exposition moyenne L
+    (0x3501, 0x04, 0),   # Exposition H
+    (0x3502, 0x6c, 0),   # Exposition L
     (0x3504, 0x0c, 0),   # Analog gain control
     (0x3507, 0x00, 0),   # Manual gain H
-    (0x3508, 0x40, 0),   # Analog gain
+    (0x3508, 0x08, 0),   # Analog gain
     (0x3509, 0x00, 0),   # Analog fine gain
     (0x350a, 0x01, 0),   # Digital coarse gain
     (0x350b, 0x00, 0),   # Digital coarse gain
@@ -121,35 +122,35 @@ INIT_SEQUENCE = [
     (0x37e5, 0x02, 0),
     (0x37e6, 0x08, 0),
     
-    # Timing configuration pour 1280x800
-    # X address start: 320 (centrer depuis 1920: (1920-1280)/2 = 320)
-    (0x3800, 0x01, 0),   # X start H (0x140 = 320)
+    # Timing configuration pour 1288x728
+    # X address start: 320 (0x140)
+    (0x3800, 0x01, 0),   # X start H
     (0x3801, 0x40, 0),   # X start L
     
-    # Y address start: 140 (centrer depuis 1080: (1080-800)/2 = 140)
-    (0x3802, 0x00, 0),   # Y start H (0x8C = 140)
-    (0x3803, 0x8c, 0),   # Y start L
+    # Y address start: 180 (0xB4)
+    (0x3802, 0x00, 0),   # Y start H
+    (0x3803, 0xb4, 0),   # Y start L
     
-    # X address end: 1599 (320 + 1280 - 1)
-    (0x3804, 0x06, 0),   # X end H (0x63F = 1599)
-    (0x3805, 0x3f, 0),   # X end L
+    # X address end: 1615 (0x64F)
+    (0x3804, 0x06, 0),   # X end H
+    (0x3805, 0x4f, 0),   # X end L
     
-    # Y address end: 939 (140 + 800 - 1)
-    (0x3806, 0x03, 0),   # Y end H (0x3AB = 939)
-    (0x3807, 0xab, 0),   # Y end L
+    # Y address end: 915 (0x38F)
+    (0x3806, 0x03, 0),   # Y end H
+    (0x3807, 0x8f, 0),   # Y end L
     
-    # Output size: 1280x800
-    (0x3808, 0x05, 0),   # Output width H (0x500 = 1280)
-    (0x3809, 0x00, 0),   # Output width L
-    (0x380a, 0x03, 0),   # Output height H (0x320 = 800)
-    (0x380b, 0x20, 0),   # Output height L
+    # Output size: 1288x728
+    (0x3808, 0x05, 0),   # Output width H (0x508 = 1288)
+    (0x3809, 0x08, 0),   # Output width L
+    (0x380a, 0x02, 0),   # Output height H (0x2D8 = 728)
+    (0x380b, 0xd8, 0),   # Output height L
     
     # HTS/VTS - Horizontal/Vertical Total Size
     # HTS: 2280 pixels (0x8E8) - pour timing stable
     (0x380c, 0x08, 0),   # HTS H
     (0x380d, 0xe8, 0),   # HTS L
     
-    # VTS: 1164 lignes (0x48C) - pour 30fps @ 81.67MHz
+    # VTS: 1164 lignes (0x48C) - pour 30fps
     (0x380e, 0x04, 0),   # VTS H  
     (0x380f, 0x8c, 0),   # VTS L
     
@@ -208,6 +209,7 @@ INIT_SEQUENCE = [
     (0x395d, 0x05, 0),
     (0x395e, 0x02, 0),
     (0x395f, 0x00, 0),
+    (0x395f, 0x00, 0),  # Répété dans l'original
     (0x3960, 0x00, 0),
     (0x3961, 0x00, 0),
     (0x3962, 0x00, 0),
@@ -281,7 +283,7 @@ INIT_SEQUENCE = [
     (0x4815, 0x40, 0),
     (0x4816, 0x12, 0),
     (0x481f, 0x30, 0),
-    (0x4837, 0x14, 0),   # MIPI PCLK period
+    (0x4837, 0x15, 0),   # MIPI PCLK period
     (0x4857, 0x05, 0),
     (0x4884, 0x04, 0),
     
@@ -317,7 +319,7 @@ INIT_SEQUENCE = [
     (0x4f00, 0x01, 0),
 ]
 
-# Tables de gain pour OV02C10
+# Tables de gain pour OV02C10 (identiques à avant)
 GAIN_VALUES = [
     # Gains 1x-2x (digital fine variation)
     1000, 1031, 1063, 1094, 1125, 1156, 1188, 1219,
@@ -346,7 +348,7 @@ GAIN_VALUES = [
     28000, 28496, 29008, 29504, 30000, 30496, 31008, 31504,
 ]
 
-# Mapping des registres de gain
+# Mapping des registres de gain (identiques à avant)
 GAIN_REGISTERS = [
     # 1x analog, digital fine variation (0x80-0xFC)
     (0x80, 0x01, 0x01), (0x84, 0x01, 0x01), (0x88, 0x01, 0x01), (0x8c, 0x01, 0x01),
@@ -448,7 +450,7 @@ public:
     {SENSOR_INFO['name'].upper()}Driver(esphome::i2c::I2CDevice* i2c) : i2c_(i2c) {{}}
     
     esp_err_t init() {{
-        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} - 1280x800 @ 30fps, 2 lanes");
+        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} - 1288x728 @ 30fps, 1 lane (ORIGINAL)");
         
         for (size_t i = 0; i < sizeof({SENSOR_INFO['name']}_init_sequence) / sizeof({SENSOR_INFO['name'].upper()}InitRegister); i++) {{
             const auto& reg = {SENSOR_INFO['name']}_init_sequence[i];
@@ -464,7 +466,7 @@ public:
             }}
         }}
         
-        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized - 2 lanes @ 408Mbps");
+        ESP_LOGI(TAG, "✅ {SENSOR_INFO['name'].upper()} initialized - 1 lane @ 400Mbps");
         return ESP_OK;
     }}
     
@@ -473,7 +475,7 @@ public:
         
         ESP_LOGI(TAG, "Reading sensor ID...");
         
-        // CORRECTION: Utiliser la méthode qui fonctionne (repeated start)
+        // Utiliser la méthode avec repeated start
         esp_err_t ret = read_register({SENSOR_INFO['name']}_regs::SENSOR_ID_H, &pid_h);
         if (ret != ESP_OK) {{
             ESP_LOGE(TAG, "Failed to read PID high byte");
@@ -573,7 +575,6 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        // CORRECTION CRITIQUE: Utiliser la séquence qui fonctionne!
         // Write SANS stop bit (repeated start condition)
         auto err = i2c_->write(addr, 2, false);
         if (err != esphome::i2c::ERROR_OK) {{
@@ -600,7 +601,7 @@ class {SENSOR_INFO['name'].upper()}Adapter : public ISensorDriver {{
 public:
     {SENSOR_INFO['name'].upper()}Adapter(i2c::I2CDevice* i2c) : driver_(i2c) {{}}
     
-    const char* get_name() const override {{ return "{SENSOR_INFO['name']}"; }}
+    const char* get_name() const override {{ return "{SENSOR_INFO['name']} (1288x728)"; }}
     uint16_t get_pid() const override {{ return 0x{SENSOR_INFO['pid']:04X}; }}
     uint8_t get_i2c_address() const override {{ return 0x{SENSOR_INFO['i2c_address']:02X}; }}
     uint8_t get_lane_count() const override {{ return {SENSOR_INFO['lane_count']}; }}
