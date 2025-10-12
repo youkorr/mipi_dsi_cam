@@ -446,7 +446,7 @@ void MipiDsiCam::update_auto_exposure_() {
     this->sensor_driver_->set_exposure(this->current_exposure_);
     this->sensor_driver_->set_gain(this->current_gain_index_);
     
-    ESP_LOGD(TAG, "🔆 AE: brightness=%u target=%u → exp=0x%04X gain=%u",
+    ESP_LOGV(TAG, "🔆 AE: brightness=%u target=%u → exp=0x%04X gain=%u",
              avg_brightness, this->ae_target_brightness_,
              this->current_exposure_, this->current_gain_index_);
   }
