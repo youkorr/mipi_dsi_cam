@@ -1,8 +1,10 @@
 #include "mipi_camera_web_server.h"
-#include "esphome/core/log.h"
-#include "esphome/core/application.h"
 
 #ifdef USE_ESP32
+
+#include "esphome/core/log.h"
+#include "esphome/core/application.h"
+#include "esphome/core/hal.h"
 
 #include <JPEGENC.h>
 
@@ -11,146 +13,87 @@ namespace mipi_camera_web_server {
 
 static const char *const TAG = "mipi_camera_web_server";
 
-// Page HTML simple
-static const char CAMERA_INDEX_HTML[] PROGMEM = R"html(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ESP32-P4 Camera</title>
-  <style>
-    body { font-family: Arial; text-align: center; margin: 20px; background: #1a1a1a; color: #fff; }
-    img { max-width: 100%; height: auto; border: 2px solid #333; border-radius: 8px; }
-    .controls { margin: 20px auto; max-width: 600px; }
-    button { 
-      background: #0066cc; color: white; border: none; 
-      padding: 10px 20px; margin: 5px; border-radius: 5px; cursor: pointer; 
-    }
-    button:hover { background: #0052a3; }
-    .slider { width: 80%; }
-  </style>
-</head>
-<body>
-  <h1>ESP32-P4 MIPI Camera</h1>
-  <div>
-    <img id="stream" src="/stream" onerror="this.src='/stream?t='+Date.now()">
-  </div>
-  <div class="controls">
-    <button onclick="snapshot()">📸 Snapshot</button>
-    <button onclick="toggleStream()">⏯️ Toggle Stream</button>
-    <br><br>
-    <label>Brightness: <input type="range" class="slider" min="0" max="10" value="5" 
-           onchange="setBrightness(this.value)"></label>
-  </div>
-  
-  <script>
-    let streaming = true;
-    
-    function toggleStream() {
-      const img = document.getElementById('stream');
-      streaming = !streaming;
-      img.style.display = streaming ? 'block' : 'none';
-      if (streaming) {
-        img.src = '/stream?t=' + Date.now();
-      }
-    }
-    
-    function snapshot() {
-      window.open('/snapshot', '_blank');
-    }
-    
-    function setBrightness(val) {
-      fetch('/control?brightness=' + val);
-    }
-    
-    // Rafraîchir le stream toutes les 100ms
-    setInterval(() => {
-      if (streaming) {
-        const img = document.getElementById('stream');
-        const src = img.src.split('?')[0];
-        img.src = src + '?t=' + Date.now();
-      }
-    }, 100);
-  </script>
-</body>
-</html>
-)html";
-
 void MipiCameraWebServer::setup() {
   ESP_LOGCONFIG(TAG, "Setting up MIPI Camera Web Server...");
 
   if (this->camera_ == nullptr) {
-    ESP_LOGE(TAG, "Camera not configured!");
+    ESP_LOGE(TAG, "Camera not configured");
     this->mark_failed();
     return;
   }
 
-  // Allouer buffer JPEG (max 100KB)
-  this->jpeg_buffer_size_ = 100 * 1024;
-  this->jpeg_buffer_ = (uint8_t *)heap_caps_malloc(
-    this->jpeg_buffer_size_, MALLOC_CAP_SPIRAM
+  // Créer mutex pour l'accès au buffer JPEG
+  this->jpeg_mutex_ = xSemaphoreCreateMutex();
+  if (this->jpeg_mutex_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to create mutex");
+    this->mark_failed();
+    return;
+  }
+
+  // Allouer buffer JPEG en PSRAM
+  this->jpeg_buffer_ = (uint8_t *) heap_caps_malloc(
+    this->jpeg_buffer_size_, 
+    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
   );
 
   if (this->jpeg_buffer_ == nullptr) {
-    ESP_LOGE(TAG, "Failed to allocate JPEG buffer");
+    ESP_LOGE(TAG, "Failed to allocate JPEG buffer (%u bytes)", this->jpeg_buffer_size_);
     this->mark_failed();
     return;
   }
 
-  // Créer le serveur web
-  this->server_ = new AsyncWebServer(this->port_);
+  // Démarrer le streaming de la caméra
+  if (!this->camera_->is_streaming()) {
+    if (!this->camera_->start_streaming()) {
+      ESP_LOGE(TAG, "Failed to start camera streaming");
+      this->mark_failed();
+      return;
+    }
+  }
 
-  // Route page index
-  this->server_->on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    this->handle_index_(request);
-  });
-
-  // Route stream
-  this->server_->on("/stream", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    this->handle_stream_(request);
-  });
-
-  // Route snapshot
-  this->server_->on("/snapshot", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    this->handle_snapshot_(request);
-  });
-
-  // Route contrôle
-  this->server_->on("/control", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    this->handle_control_(request);
-  });
-
-  // Démarrer le serveur
-  this->server_->begin();
-
-  // Démarrer le streaming caméra
-  this->camera_->start_streaming();
-
-  ESP_LOGI(TAG, "Web server started on port %d", this->port_);
-}
-
-void MipiCameraWebServer::loop() {
-  // Rien à faire, AsyncWebServer gère tout
+  ESP_LOGI(TAG, "MIPI Camera Web Server initialized");
 }
 
 void MipiCameraWebServer::dump_config() {
   ESP_LOGCONFIG(TAG, "MIPI Camera Web Server:");
-  ESP_LOGCONFIG(TAG, "  Port: %d", this->port_);
-  ESP_LOGCONFIG(TAG, "  URL: http://%s:%d", 
-                network::get_ip_address().str().c_str(), this->port_);
+  ESP_LOGCONFIG(TAG, "  Mode: %s", this->stream_mode_ ? "stream" : "snapshot");
+  if (this->camera_) {
+    ESP_LOGCONFIG(TAG, "  Resolution: %ux%u", 
+                  this->camera_->get_image_width(),
+                  this->camera_->get_image_height());
+  }
 }
 
-void MipiCameraWebServer::handle_index_(AsyncWebServerRequest *request) {
-  request->send_P(200, "text/html", CAMERA_INDEX_HTML);
+bool MipiCameraWebServer::canHandle(AsyncWebServerRequest *request) {
+  if (request->method() != HTTP_GET)
+    return false;
+
+  // URLs gérées : /camera.jpg (snapshot) et /camera_stream.mjpg (stream)
+  if (request->url() == "/camera.jpg")
+    return true;
+    
+  if (this->stream_mode_ && request->url() == "/camera_stream.mjpg")
+    return true;
+
+  return false;
 }
 
-void MipiCameraWebServer::handle_stream_(AsyncWebServerRequest *request) {
-  if (!this->camera_->is_streaming()) {
-    request->send(503, "text/plain", "Camera not streaming");
+void MipiCameraWebServer::handle_request(AsyncWebServerRequest *request) {
+  if (!this->camera_ || !this->camera_->is_streaming()) {
+    request->send(503, "text/plain", "Camera not available");
     return;
   }
 
+  if (request->url() == "/camera.jpg") {
+    this->handle_snapshot_(request);
+  } else if (request->url() == "/camera_stream.mjpg") {
+    this->handle_stream_(request);
+  } else {
+    request->send(404);
+  }
+}
+
+void MipiCameraWebServer::handle_snapshot_(AsyncWebServerRequest *request) {
   // Capturer une frame
   if (!this->camera_->capture_frame()) {
     request->send(503, "text/plain", "No frame available");
@@ -162,7 +105,7 @@ void MipiCameraWebServer::handle_stream_(AsyncWebServerRequest *request) {
   uint16_t height = this->camera_->get_image_height();
 
   if (rgb565_data == nullptr) {
-    request->send(503, "text/plain", "Invalid frame data");
+    request->send(500, "text/plain", "Invalid frame data");
     return;
   }
 
@@ -170,18 +113,48 @@ void MipiCameraWebServer::handle_stream_(AsyncWebServerRequest *request) {
   uint8_t *jpeg_data = nullptr;
   size_t jpeg_size = 0;
 
-  if (!this->encode_jpeg_(rgb565_data, width, height, &jpeg_data, &jpeg_size)) {
+  if (xSemaphoreTake(this->jpeg_mutex_, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    request->send(503, "text/plain", "Server busy");
+    return;
+  }
+
+  bool success = this->encode_jpeg_(rgb565_data, width, height, &jpeg_data, &jpeg_size, 15);
+  
+  if (!success || jpeg_size == 0) {
+    xSemaphoreGive(this->jpeg_mutex_);
     request->send(500, "text/plain", "JPEG encoding failed");
     return;
   }
 
-  // Envoyer l'image JPEG
+  // Copier les données JPEG pour la réponse
+  uint8_t *jpeg_copy = (uint8_t *) malloc(jpeg_size);
+  if (jpeg_copy == nullptr) {
+    xSemaphoreGive(this->jpeg_mutex_);
+    request->send(500, "text/plain", "Memory allocation failed");
+    return;
+  }
+  memcpy(jpeg_copy, jpeg_data, jpeg_size);
+  
+  xSemaphoreGive(this->jpeg_mutex_);
+
+  // Envoyer la réponse
   AsyncWebServerResponse *response = request->beginResponse(
-    "image/jpeg", jpeg_size,
-    [jpeg_data](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-      size_t len = maxLen;
-      memcpy(buffer, jpeg_data + index, len);
-      return len;
+    "image/jpeg", 
+    jpeg_size,
+    [jpeg_copy, jpeg_size](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      size_t remaining = jpeg_size - index;
+      size_t to_send = (remaining < maxLen) ? remaining : maxLen;
+      
+      if (to_send > 0) {
+        memcpy(buffer, jpeg_copy + index, to_send);
+      }
+      
+      // Libérer la mémoire à la fin
+      if (index + to_send >= jpeg_size) {
+        free((void *) jpeg_copy);
+      }
+      
+      return to_send;
     }
   );
 
@@ -191,106 +164,162 @@ void MipiCameraWebServer::handle_stream_(AsyncWebServerRequest *request) {
   request->send(response);
 }
 
-void MipiCameraWebServer::handle_snapshot_(AsyncWebServerRequest *request) {
-  // Identique à handle_stream_ mais avec headers différents
-  if (!this->camera_->is_streaming()) {
-    request->send(503, "text/plain", "Camera not streaming");
-    return;
-  }
+void MipiCameraWebServer::handle_stream_(AsyncWebServerRequest *request) {
+  // Stream MJPEG multipart
+  AsyncWebServerResponse *response = request->beginChunkedResponse(
+    "multipart/x-mixed-replace; boundary=frame",
+    [this](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      // Capturer une nouvelle frame
+      if (!this->camera_->capture_frame()) {
+        return 0;
+      }
 
-  if (!this->camera_->capture_frame()) {
-    request->send(503, "text/plain", "No frame available");
-    return;
-  }
+      uint8_t *rgb565_data = this->camera_->get_image_data();
+      uint16_t width = this->camera_->get_image_width();
+      uint16_t height = this->camera_->get_image_height();
 
-  uint8_t *rgb565_data = this->camera_->get_image_data();
-  uint16_t width = this->camera_->get_image_width();
-  uint16_t height = this->camera_->get_image_height();
+      if (rgb565_data == nullptr) {
+        return 0;
+      }
 
-  if (rgb565_data == nullptr) {
-    request->send(503, "text/plain", "Invalid frame data");
-    return;
-  }
+      // Encoder en JPEG
+      if (xSemaphoreTake(this->jpeg_mutex_, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return 0;
+      }
 
-  uint8_t *jpeg_data = nullptr;
-  size_t jpeg_size = 0;
+      uint8_t *jpeg_data = nullptr;
+      size_t jpeg_size = 0;
 
-  if (!this->encode_jpeg_(rgb565_data, width, height, &jpeg_data, &jpeg_size)) {
-    request->send(500, "text/plain", "JPEG encoding failed");
-    return;
-  }
+      bool success = this->encode_jpeg_(rgb565_data, width, height, &jpeg_data, &jpeg_size, 12);
+      
+      if (!success || jpeg_size == 0) {
+        xSemaphoreGive(this->jpeg_mutex_);
+        return 0;
+      }
 
-  AsyncWebServerResponse *response = request->beginResponse(
-    "image/jpeg", jpeg_size,
-    [jpeg_data](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-      size_t len = maxLen;
-      memcpy(buffer, jpeg_data + index, len);
-      return len;
+      // Construire la réponse multipart
+      char header[150];
+      int header_len = snprintf(header, sizeof(header),
+        "--frame\r\n"
+        "Content-Type: image/jpeg\r\n"
+        "Content-Length: %u\r\n\r\n",
+        jpeg_size
+      );
+
+      size_t total_size = header_len + jpeg_size + 2;  // +2 pour \r\n final
+
+      if (total_size > maxLen) {
+        xSemaphoreGive(this->jpeg_mutex_);
+        return 0;
+      }
+
+      // Copier header
+      memcpy(buffer, header, header_len);
+      
+      // Copier JPEG
+      memcpy(buffer + header_len, jpeg_data, jpeg_size);
+      
+      // Ajouter \r\n final
+      buffer[header_len + jpeg_size] = '\r';
+      buffer[header_len + jpeg_size + 1] = '\n';
+
+      xSemaphoreGive(this->jpeg_mutex_);
+
+      // Délai pour limiter le framerate (~10 FPS)
+      delay(100);
+
+      return total_size;
     }
   );
 
-  response->addHeader("Content-Disposition", "attachment; filename=snapshot.jpg");
+  response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  response->addHeader("Pragma", "no-cache");
+  response->addHeader("Expires", "0");
   request->send(response);
-}
-
-void MipiCameraWebServer::handle_control_(AsyncWebServerRequest *request) {
-  if (request->hasParam("brightness")) {
-    String brightness_str = request->getParam("brightness")->value();
-    uint8_t level = brightness_str.toInt();
-    this->camera_->set_brightness_level(level);
-    request->send(200, "text/plain", "OK");
-  } else {
-    request->send(400, "text/plain", "Invalid parameter");
-  }
 }
 
 bool MipiCameraWebServer::encode_jpeg_(const uint8_t *rgb565_data, 
                                        size_t width, size_t height,
-                                       uint8_t **jpeg_out, size_t *jpeg_size) {
-  // Convertir RGB565 -> RGB888
+                                       uint8_t **jpeg_out, size_t *jpeg_size,
+                                       int quality) {
+  // Allouer buffer RGB888 temporaire
   size_t rgb888_size = width * height * 3;
-  uint8_t *rgb888_data = (uint8_t *)heap_caps_malloc(rgb888_size, MALLOC_CAP_SPIRAM);
+  uint8_t *rgb888_data = (uint8_t *) heap_caps_malloc(
+    rgb888_size, 
+    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+  );
   
   if (rgb888_data == nullptr) {
     ESP_LOGE(TAG, "Failed to allocate RGB888 buffer");
     return false;
   }
 
+  // Convertir RGB565 -> RGB888
   this->rgb565_to_rgb888_(rgb565_data, rgb888_data, width * height);
 
-  // Encoder en JPEG
+  // Encoder en JPEG avec jpegenc
   JPEGENC encoder;
-  encoder.open(this->jpeg_buffer_, this->jpeg_buffer_size_);
-  encoder.encodeBegin(width, height, JPEGE_PIXEL_RGB888, JPEGE_SUBSAMPLE_420, JPEGE_Q_HIGH);
-  encoder.addFrame(rgb888_data, width * 3);
+  int result = encoder.open(this->jpeg_buffer_, this->jpeg_buffer_size_);
+  
+  if (result != JPEGE_SUCCESS) {
+    ESP_LOGE(TAG, "JPEG encoder open failed");
+    heap_caps_free(rgb888_data);
+    return false;
+  }
+
+  result = encoder.encodeBegin(
+    width, height, 
+    JPEGE_PIXEL_RGB888, 
+    JPEGE_SUBSAMPLE_420, 
+    quality
+  );
+  
+  if (result != JPEGE_SUCCESS) {
+    ESP_LOGE(TAG, "JPEG encodeBegin failed");
+    heap_caps_free(rgb888_data);
+    return false;
+  }
+
+  result = encoder.addFrame(rgb888_data, width * 3);
+  
+  if (result != JPEGE_SUCCESS) {
+    ESP_LOGE(TAG, "JPEG addFrame failed");
+    heap_caps_free(rgb888_data);
+    return false;
+  }
+
   *jpeg_size = encoder.close();
   *jpeg_out = this->jpeg_buffer_;
 
   heap_caps_free(rgb888_data);
 
-  if (*jpeg_size == 0) {
-    ESP_LOGE(TAG, "JPEG encoding failed");
+  if (*jpeg_size == 0 || *jpeg_size > this->jpeg_buffer_size_) {
+    ESP_LOGE(TAG, "JPEG encoding produced invalid size: %u", *jpeg_size);
     return false;
   }
 
-  ESP_LOGV(TAG, "JPEG encoded: %u bytes", *jpeg_size);
+  ESP_LOGV(TAG, "JPEG encoded: %ux%u -> %u bytes (quality: %d)", 
+           width, height, *jpeg_size, quality);
+  
   return true;
 }
 
 void MipiCameraWebServer::rgb565_to_rgb888_(const uint8_t *rgb565, 
-                                           uint8_t *rgb888, size_t pixels) {
+                                           uint8_t *rgb888, 
+                                           size_t pixels) {
   for (size_t i = 0; i < pixels; i++) {
+    // Lire pixel RGB565 (little-endian)
     uint16_t pixel = (rgb565[i * 2 + 1] << 8) | rgb565[i * 2];
     
-    // Extraire RGB565
-    uint8_t r = (pixel >> 11) & 0x1F;
-    uint8_t g = (pixel >> 5) & 0x3F;
-    uint8_t b = pixel & 0x1F;
+    // Extraire les composantes RGB565
+    uint8_t r5 = (pixel >> 11) & 0x1F;
+    uint8_t g6 = (pixel >> 5) & 0x3F;
+    uint8_t b5 = pixel & 0x1F;
     
-    // Convertir en RGB888
-    rgb888[i * 3 + 0] = (r << 3) | (r >> 2);  // R
-    rgb888[i * 3 + 1] = (g << 2) | (g >> 4);  // G
-    rgb888[i * 3 + 2] = (b << 3) | (b >> 2);  // B
+    // Convertir en RGB888 avec expansion
+    rgb888[i * 3 + 0] = (r5 << 3) | (r5 >> 2);  // R
+    rgb888[i * 3 + 1] = (g6 << 2) | (g6 >> 4);  // G
+    rgb888[i * 3 + 2] = (b5 << 3) | (b5 >> 2);  // B
   }
 }
 
