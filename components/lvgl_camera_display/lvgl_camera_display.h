@@ -19,14 +19,23 @@ class LVGLCameraDisplay : public Component {
   // Configuration du canvas - à appeler depuis YAML on_boot
   void configure_canvas(lv_obj_t *canvas);
   
+  // Configuration avec dimensions personnalisées (scaling automatique)
+  void configure_canvas(lv_obj_t *canvas, uint16_t target_width, uint16_t target_height);
+  
   // Vérifier si le canvas est configuré
-  bool is_canvas_configured() const { return this->canvas_obj_ != nullptr; }
+  bool is_canvas_configured() const { return this->img_obj_ != nullptr; }
   
   float get_setup_priority() const override { return setup_priority::LATE; }
 
  protected:
   mipi_dsi_cam::MipiDsiCam *camera_{nullptr};
-  lv_obj_t *canvas_obj_{nullptr};
+  lv_obj_t *img_obj_{nullptr};  // Utiliser lv_img au lieu de canvas pour le scaling
+  lv_img_dsc_t img_dsc_{};      // Description de l'image pour LVGL
+  
+  // Dimensions cibles pour le scaling
+  uint16_t target_width_{0};
+  uint16_t target_height_{0};
+  bool use_scaling_{false};
   
   uint32_t update_interval_{20};  // 50 FPS par défaut
   uint32_t last_update_{0};
