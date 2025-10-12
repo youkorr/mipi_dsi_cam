@@ -2,8 +2,8 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 
-DEPENDENCIES = ["lvgl", "tab5_camera"]
-AUTO_LOAD = ["tab5_camera"]
+DEPENDENCIES = ["lvgl", "mipi_dsi_cam"]
+AUTO_LOAD = ["mipi_dsi_cam"]
 
 CONF_CAMERA_ID = "camera_id"
 CONF_CANVAS_ID = "canvas_id"
@@ -13,12 +13,12 @@ lvgl_camera_display_ns = cg.esphome_ns.namespace("lvgl_camera_display")
 LVGLCameraDisplay = lvgl_camera_display_ns.class_("LVGLCameraDisplay", cg.Component)
 
 # Import du namespace tab5_camera
-tab5_camera_ns = cg.esphome_ns.namespace("tab5_camera")
-Tab5Camera = tab5_camera_ns.class_("Tab5Camera")
+mipi_dsi_cam_ns = cg.esphome_ns.namespace("mipi_dsi_cam")
+MipiDsiCam = mipi_dsi_cam_ns.class_("MipiDsiCam")
 
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(LVGLCameraDisplay),
-    cv.Required(CONF_CAMERA_ID): cv.use_id(Tab5Camera),
+    cv.Required(CONF_CAMERA_ID): cv.use_id(MipiDsiCam),
     cv.Required(CONF_CANVAS_ID): cv.string,
     cv.Optional(CONF_UPDATE_INTERVAL, default="33ms"): cv.positive_time_period_milliseconds,
 }).extend(cv.COMPONENT_SCHEMA)
