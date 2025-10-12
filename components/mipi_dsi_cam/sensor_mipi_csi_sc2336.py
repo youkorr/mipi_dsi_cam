@@ -1,7 +1,7 @@
 SENSOR_INFO = {
     'name': 'sc2336',
     'manufacturer': 'SmartSens',
-    'pid': 0xeb52, #0xcb3a,
+    'pid': 0xcb3a,
     'i2c_address': 0x36,
     'lane_count': 2,
     'bayer_pattern': 3,
