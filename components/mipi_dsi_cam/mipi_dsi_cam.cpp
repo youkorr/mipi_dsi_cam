@@ -72,7 +72,7 @@ void MipiDsiCam::setup() {
   }
   
   this->initialized_ = true;
-  ESP_LOGI(TAG, "Camera ready (%ux%u) with Auto Exposure and AWB", this->width_, this->height_);
+  ESP_LOGI(TAG, "Camera ready (%ux%u) with Auto Exposure", this->width_, this->height_);
 }
 
 bool MipiDsiCam::create_sensor_driver_() {
@@ -234,7 +234,7 @@ bool MipiDsiCam::init_csi_() {
 }
 
 bool MipiDsiCam::init_isp_() {
-  ESP_LOGI(TAG, "Init ISP with AWB correction");
+  ESP_LOGI(TAG, "Init ISP");
   
   uint32_t isp_clock_hz = 120000000;
   
@@ -264,19 +264,20 @@ bool MipiDsiCam::init_isp_() {
     return false;
   }
   
-  // Configure AWB pour corriger le fond vert
+  // Configure AWB si supporté par le capteur
   this->configure_white_balance_();
   
-  ESP_LOGI(TAG, "ISP OK avec AWB correction");
+  ESP_LOGI(TAG, "ISP OK");
   return true;
 }
 
 void MipiDsiCam::configure_white_balance_() {
   if (!this->isp_handle_) return;
   
-  // OV5647 a des problèmes avec AWB sur ESP32-P4, on le désactive
-  if (this->sensor_type_ == "ov5647") {
-    ESP_LOGI(TAG, "OV5647 détecté - AWB matériel désactivé (utilisation ISP par défaut)");
+  // OV5647 et SC202CS ont des problèmes avec AWB matériel sur ESP32-P4
+  if (this->sensor_type_ == "ov5647" || this->sensor_type_ == "sc202cs") {
+    ESP_LOGI(TAG, "%s détecté - AWB matériel désactivé (correction logicielle uniquement)", 
+             this->sensor_type_.c_str());
     return;
   }
   
@@ -294,9 +295,9 @@ void MipiDsiCam::configure_white_balance_() {
   
   if (ret == ESP_OK && this->awb_ctlr_ != nullptr) {
     esp_isp_awb_controller_enable(this->awb_ctlr_);
-    ESP_LOGI(TAG, "✅ AWB activé (auto-correction couleurs)");
+    ESP_LOGI(TAG, "✅ AWB matériel activé (auto-correction couleurs)");
   } else {
-    ESP_LOGW(TAG, "AWB non disponible (0x%x), utilisation ISP par défaut", ret);
+    ESP_LOGW(TAG, "AWB matériel non disponible (0x%x), utilisation ISP par défaut", ret);
   }
 }
 
@@ -534,8 +535,6 @@ void MipiDsiCam::dump_config() {
   
   ESP_LOGCONFIG(TAG, "  Auto Exposure: %s", this->auto_exposure_enabled_ ? "ON" : "OFF");
   ESP_LOGCONFIG(TAG, "  AE Target: %u", this->ae_target_brightness_);
-  ESP_LOGCONFIG(TAG, "  White Balance: R=%.2f G=%.2f B=%.2f", 
-                this->wb_red_gain_, this->wb_green_gain_, this->wb_blue_gain_);
   ESP_LOGCONFIG(TAG, "  Streaming: %s", this->streaming_ ? "YES" : "NO");
 }
 
@@ -571,9 +570,13 @@ void MipiDsiCam::set_white_balance_gains(float red, float green, float blue) {
   this->wb_green_gain_ = green;
   this->wb_blue_gain_ = blue;
   
-  this->configure_white_balance_();
-  
-  ESP_LOGI(TAG, "WB gains: R=%.2f G=%.2f B=%.2f", red, green, blue);
+  // Pour les capteurs supportant la balance des blancs au niveau registre
+  if (this->sensor_driver_ && (this->sensor_type_ == "sc202cs" || this->sensor_type_ == "sc2336")) {
+    // Appeler la méthode du driver si disponible
+    ESP_LOGI(TAG, "WB gains: R=%.2f G=%.2f B=%.2f (logiciel uniquement)", red, green, blue);
+  } else {
+    ESP_LOGI(TAG, "WB gains: R=%.2f G=%.2f B=%.2f", red, green, blue);
+  }
 }
 
 void MipiDsiCam::adjust_exposure(uint16_t exposure_value) {
