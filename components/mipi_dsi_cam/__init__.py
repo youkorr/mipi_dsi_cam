@@ -98,6 +98,15 @@ def load_sensors():
         logger.warning(f"OV5647_480P sensor not available: {e}")
     except Exception as e:
         logger.error(f"Error loading OV5647_480P: {e}")
+    try:
+        from .sensor_mipi_csi_ov5647_vga import get_sensor_info, get_driver_code
+        AVAILABLE_SENSORS['ov5647_vga'] = {
+            'info': get_sensor_info(),
+            'driver': get_driver_code
+        }
+        logger.info("OV5647_VGA sensor loaded (640x480 @ 90fps)")
+    except ImportError as e:
+        logger.warning(f"OV5647_VGA sensor not available: {e}")
     
     try:
         from .sensor_mipi_csi_ov02c10 import get_sensor_info, get_driver_code
