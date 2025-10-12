@@ -291,7 +291,7 @@ public:
     {SENSOR_INFO['name'].upper()}Driver(esphome::i2c::I2CDevice* i2c) : i2c_(i2c) {{}}
     
     esp_err_t init() {{
-        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} with Auto Exposure support");
+        ESP_LOGI(TAG, "Init {SENSOR_INFO['name'].upper()} - AWB matériel désactivé, correction logicielle uniquement");
         
         for (size_t i = 0; i < sizeof({SENSOR_INFO['name']}_init_sequence) / sizeof({SENSOR_INFO['name'].upper()}InitRegister); i++) {{
             const auto& reg = {SENSOR_INFO['name']}_init_sequence[i];
@@ -307,7 +307,7 @@ public:
             }}
         }}
         
-        ESP_LOGI(TAG, "{SENSOR_INFO['name'].upper()} initialized - AE will auto-adjust");
+        ESP_LOGI(TAG, "✅ {SENSOR_INFO['name'].upper()} initialized");
         return ESP_OK;
     }}
     
