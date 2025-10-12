@@ -561,9 +561,9 @@ public:
             value
         }};
         
-        auto err = i2c_->write(data, 3);
+        auto err = i2c_->write_read(data, 3, nullptr, 0); // new write
         if (err != esphome::i2c::ERROR_OK) {{
-            ESP_LOGE(TAG, "Failed to write reg 0x%04X, error: %d", reg, err);
+            ESP_LOGE(TAG, "I2C write failed for reg 0x%04X", reg);
             return ESP_FAIL;
         }}
         return ESP_OK;
@@ -575,17 +575,11 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        // Écrire l'adresse du registre
-        auto err = i2c_->write(addr, 2);
+        auto err = i2c_->write_read(addr, 2, value, 1); 
+                                                       
+                                                      
         if (err != esphome::i2c::ERROR_OK) {{
-            ESP_LOGE(TAG, "Failed to write reg address 0x%04X", reg);
-            return ESP_FAIL;
-        }}
-        
-        // Lire la valeur
-        err = i2c_->read(value, 1);
-        if (err != esphome::i2c::ERROR_OK) {{
-            ESP_LOGE(TAG, "Failed to read reg 0x%04X", reg);
+            ESP_LOGE(TAG, "I2C cmd failed for reg 0x%04X", reg);
             return ESP_FAIL;
         }}
         
