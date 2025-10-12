@@ -402,7 +402,7 @@ void MipiCameraWebServer::rgb565_to_rgb888_(const uint8_t *rgb565, uint8_t *rgb8
 
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
-#include <JPEGENC.h>
+//#include <JPEGENC.h>
 
 namespace esphome {
 namespace mipi_camera_web_server {
