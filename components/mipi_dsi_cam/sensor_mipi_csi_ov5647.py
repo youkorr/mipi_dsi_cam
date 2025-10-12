@@ -4,7 +4,7 @@ SENSOR_INFO = {
     'pid': 0x5647,
     'i2c_address': 0x36,
     'lane_count': 2,
-    'bayer_pattern': 0,  # BGGR
+    'bayer_pattern': 1,  # BGGR
     'lane_bitrate_mbps': 400,  
     'width': 800,
     'height': 640,
