@@ -25,7 +25,7 @@ class LVGLCameraDisplay : public Component {
   float get_setup_priority() const override { return setup_priority::LATE; }
 
  protected:
-  tab5_camera::Tab5Camera *camera_{nullptr};
+  mipi_dsi_cam::MipiDsiCam *camera_{nullptr};
   lv_obj_t *canvas_obj_{nullptr};
   
   uint32_t update_interval_{20};  // 50 FPS par défaut
