@@ -354,9 +354,9 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        auto err = i2c_->write_read(addr, 2, value, 1); // combine as it is meant to be used since latest updates,
-                                                       // without i2c deprecation warning.
-                                                       // does the same (write without stop, then read with stop
+        auto err = i2c_->write_read(addr, 2, value, 1);
+                                                       
+                                                       
         if (err != esphome::i2c::ERROR_OK) {{
             ESP_LOGE(TAG, "I2C cmd failed for reg 0x%04X", reg);
             return ESP_FAIL;
