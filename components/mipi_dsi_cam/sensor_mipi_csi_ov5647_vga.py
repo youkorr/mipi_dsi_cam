@@ -5,7 +5,7 @@ SENSOR_INFO = {
     'i2c_address': 0x36,
     'lane_count': 2,
     'bayer_pattern': 1,  # BGGR
-    'lane_bitrate_mbps': 360,  # Réduit pour VGA (moins de données)
+    'lane_bitrate_mbps': 360,
     'width': 640,
     'height': 480,
     'fps': 90,  # HAUTE VITESSE !
@@ -28,7 +28,7 @@ REGISTERS = {
 # Configuration VGA @ 90fps - ULTRA-RAPIDE
 INIT_SEQUENCE = [
     # === PHASE 1: Reset et PLL Optimisée pour Haute Vitesse ===
-    (0x0103, 0x01, 10),  # Software reset
+    (0x0103, 0x01, 10),  # Software reset - WAIT 10ms APRÈS
     (0x0100, 0x00, 0),   # Sleep mode OFF
     
     # === PLL Configuration pour 90 FPS ===
@@ -38,7 +38,7 @@ INIT_SEQUENCE = [
     (0x303c, 0x11, 0),   # PLLS control
     
     # === MIPI Configuration - 2 LANES ===
-    (0x3034, 0x18, 0),   # RAW8 mode (suffisant pour VGA haute vitesse)
+    (0x3034, 0x18, 0),   # RAW8 mode
     (0x3106, 0xf5, 0),
     
     # === Binning 2x2 pour VGA ===
@@ -74,36 +74,26 @@ INIT_SEQUENCE = [
     (0x3b07, 0x0c, 0),
     
     # === Timing - HTS/VTS pour 90fps ===
-    # HTS: 1896 pixels (0x768) - timing compact pour haute vitesse
-    (0x380c, 0x07, 0),   # HTS H
+    (0x380c, 0x07, 0),   # HTS H: 1896 pixels
     (0x380d, 0x68, 0),   # HTS L
-    
-    # VTS: 328 lines (0x148) - TRÈS COURT pour 90fps !
-    (0x380e, 0x01, 0),   # VTS H
+    (0x380e, 0x01, 0),   # VTS H: 328 lines - TRÈS COURT pour 90fps !
     (0x380f, 0x48, 0),   # VTS L
     
     # === Subsample pour VGA (2x2) ===
-    (0x3814, 0x31, 0),   # Horizontal odd subsample
-    (0x3815, 0x31, 0),   # Vertical odd subsample
+    (0x3814, 0x31, 0),
+    (0x3815, 0x31, 0),
     (0x3708, 0x64, 0),
     (0x3709, 0x52, 0),
     
-    # === Window - VGA centré sur le capteur ===
-    # X start: 500 (comme les autres configs)
+    # === Window - VGA centré ===
     (0x3800, 0x01, 0),   # X start H
-    (0x3801, 0xf4, 0),   # X start L (0x1F4 = 500)
-    
-    # Y start: 180 (centré verticalement)
+    (0x3801, 0xf4, 0),   # X start L (500)
     (0x3802, 0x00, 0),   # Y start H
-    (0x3803, 0xb4, 0),   # Y start L (0xB4 = 180)
-    
-    # X end: 2123 (500 + 640*2 + padding pour binning)
+    (0x3803, 0xb4, 0),   # Y start L (180)
     (0x3804, 0x08, 0),   # X end H
-    (0x3805, 0x4b, 0),   # X end L (0x84B = 2123)
-    
-    # Y end: 1139 (180 + 480*2 - 1)
+    (0x3805, 0x4b, 0),   # X end L (2123)
     (0x3806, 0x04, 0),   # Y end H
-    (0x3807, 0x73, 0),   # Y end L (0x473 = 1139)
+    (0x3807, 0x73, 0),   # Y end L (1139)
     
     # === Output size: 640x480 ===
     (0x3808, 0x02, 0),   # Width H (0x280 = 640)
@@ -112,10 +102,10 @@ INIT_SEQUENCE = [
     (0x380b, 0xe0, 0),   # Height L
     
     # === Offset ===
-    (0x3810, 0x00, 0),   # H offset H
-    (0x3811, 0x08, 0),   # H offset L
-    (0x3812, 0x00, 0),   # V offset H
-    (0x3813, 0x02, 0),   # V offset L
+    (0x3810, 0x00, 0),
+    (0x3811, 0x08, 0),
+    (0x3812, 0x00, 0),
+    (0x3813, 0x02, 0),
     
     # === Analog control ===
     (0x3630, 0x2e, 0),
@@ -139,13 +129,13 @@ INIT_SEQUENCE = [
     (0x3f06, 0x10, 0),
     (0x3f01, 0x0a, 0),
     
-    # === AEC/AGC - Paramètres adaptés pour haute vitesse ===
-    (0x3a08, 0x00, 0),   # B50 step H (ajusté pour 90fps)
-    (0x3a09, 0x3a, 0),   # B50 step L
-    (0x3a0a, 0x00, 0),   # B60 step H
-    (0x3a0b, 0x30, 0),   # B60 step L
-    (0x3a0d, 0x08, 0),   # B60 max (augmenté pour haute vitesse)
-    (0x3a0e, 0x06, 0),   # B50 max
+    # === AEC/AGC - Optimisé 90fps ===
+    (0x3a08, 0x00, 0),
+    (0x3a09, 0x3a, 0),
+    (0x3a0a, 0x00, 0),
+    (0x3a0b, 0x30, 0),
+    (0x3a0d, 0x08, 0),
+    (0x3a0e, 0x06, 0),
     (0x3a0f, 0x58, 0),
     (0x3a10, 0x50, 0),
     (0x3a1b, 0x58, 0),
@@ -158,13 +148,13 @@ INIT_SEQUENCE = [
     (0x4004, 0x02, 0),
     (0x4000, 0x09, 0),
     
-    # === MIPI timing - Optimisé pour VGA haute vitesse ===
-    (0x4837, 0x2a, 0),   # MIPI PCLK period (timing relaxé pour VGA)
+    # === MIPI timing ===
+    (0x4837, 0x2a, 0),
     (0x4050, 0x6e, 0),
     (0x4051, 0x8f, 0),
 ]
 
-# Tables de gain (identiques)
+# Tables de gain
 GAIN_VALUES = [
     1000, 1062, 1125, 1187, 1250, 1312, 1375, 1437,
     1500, 1562, 1625, 1687, 1750, 1812, 1875, 1937,
@@ -247,42 +237,70 @@ public:
         ESP_LOGI(TAG, "  PLL: 24MHz × 120 = 2880MHz → ~360 Mbps/lane");
         ESP_LOGI(TAG, "  Frame time: ~11ms (latence minimale)");
         
+        // CRITIQUE : Respecter l'ordre exact - délai APRÈS écriture
         for (size_t i = 0; i < sizeof({SENSOR_INFO['name']}_init_sequence) / sizeof({SENSOR_INFO['name'].upper()}InitRegister); i++) {{
             const auto& reg = {SENSOR_INFO['name']}_init_sequence[i];
             
+            // ✅ CORRECTION : Écrire le registre D'ABORD
+            esp_err_t ret = write_register(reg.addr, reg.value);
+            if (ret != ESP_OK) {{
+                ESP_LOGE(TAG, "❌ Init failed at reg 0x%04X", reg.addr);
+                return ret;
+            }}
+            
+            // ✅ PUIS appliquer le délai APRÈS (comme dans tab5_camera)
             if (reg.delay_ms > 0) {{
+                ESP_LOGD(TAG, "⏱️  Waiting %ums after reg 0x%04X", reg.delay_ms, reg.addr);
                 vTaskDelay(pdMS_TO_TICKS(reg.delay_ms));
             }}
             
-            esp_err_t ret = write_register(reg.addr, reg.value);
-            if (ret != ESP_OK) {{
-                ESP_LOGE(TAG, "Init failed at reg 0x%04X", reg.addr);
-                return ret;
+            // Log de progression
+            if (i == 0) {{
+                ESP_LOGI(TAG, "✓ Phase 1: Software reset done");
+            }} else if (i == 4) {{
+                ESP_LOGI(TAG, "✓ Phase 1: PLL configured for 90fps");
+            }} else if (i == sizeof({SENSOR_INFO['name']}_init_sequence) / sizeof({SENSOR_INFO['name'].upper()}InitRegister) - 1) {{
+                ESP_LOGI(TAG, "✓ Phase 2: VGA 90fps config done");
             }}
         }}
         
-        ESP_LOGI(TAG, "✅ {SENSOR_INFO['name'].upper()} initialized - 90 FPS MODE");
+        ESP_LOGI(TAG, "✅ {SENSOR_INFO['name'].upper()} initialized - 90 FPS MODE ACTIVATED");
         return ESP_OK;
     }}
     
     esp_err_t read_id(uint16_t* pid) {{
         uint8_t pid_h, pid_l;
         
+        ESP_LOGD(TAG, "Reading sensor ID...");
+        
         esp_err_t ret = read_register({SENSOR_INFO['name']}_regs::SENSOR_ID_H, &pid_h);
-        if (ret != ESP_OK) return ret;
+        if (ret != ESP_OK) {{
+            ESP_LOGE(TAG, "Failed to read PID H");
+            return ret;
+        }}
         
         ret = read_register({SENSOR_INFO['name']}_regs::SENSOR_ID_L, &pid_l);
-        if (ret != ESP_OK) return ret;
+        if (ret != ESP_OK) {{
+            ESP_LOGE(TAG, "Failed to read PID L");
+            return ret;
+        }}
         
         *pid = (pid_h << 8) | pid_l;
+        ESP_LOGI(TAG, "✓ Read PID: 0x%04X (H=0x%02X, L=0x%02X)", *pid, pid_h, pid_l);
         return ESP_OK;
     }}
     
     esp_err_t start_stream() {{
-        return write_register({SENSOR_INFO['name']}_regs::STREAM_MODE, 0x01);
+        ESP_LOGI(TAG, "🚀 Starting 90fps stream...");
+        esp_err_t ret = write_register({SENSOR_INFO['name']}_regs::STREAM_MODE, 0x01);
+        if (ret == ESP_OK) {{
+            ESP_LOGI(TAG, "✓ Stream started - 90 FPS active!");
+        }}
+        return ret;
     }}
     
     esp_err_t stop_stream() {{
+        ESP_LOGI(TAG, "Stopping stream...");
         return write_register({SENSOR_INFO['name']}_regs::STREAM_MODE, 0x00);
     }}
     
@@ -322,7 +340,9 @@ public:
             value
         }};
         
-        if (!i2c_->write(data, 3)) {{
+        auto err = i2c_->write(data, 3);
+        if (err != esphome::i2c::ERROR_OK) {{
+            ESP_LOGE(TAG, "I2C write failed for reg 0x%04X", reg);
             return ESP_FAIL;
         }}
         return ESP_OK;
@@ -334,12 +354,19 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        if (!i2c_->write(addr, 2, false)) {{
+        // IMPORTANT: Write sans stop, puis read avec stop (repeated start)
+        auto err = i2c_->write(addr, 2, false);  // false = pas de STOP
+        if (err != esphome::i2c::ERROR_OK) {{
+            ESP_LOGE(TAG, "I2C write address failed for reg 0x%04X", reg);
             return ESP_FAIL;
         }}
-        if (!i2c_->read(value, 1)) {{
+        
+        err = i2c_->read(value, 1);  // avec STOP automatique
+        if (err != esphome::i2c::ERROR_OK) {{
+            ESP_LOGE(TAG, "I2C read failed for reg 0x%04X", reg);
             return ESP_FAIL;
         }}
+        
         return ESP_OK;
     }}
     
