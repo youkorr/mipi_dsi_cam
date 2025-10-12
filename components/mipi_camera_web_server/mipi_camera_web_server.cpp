@@ -6,8 +6,8 @@
 #include "esphome/core/application.h"
 
 // Inclure l'encodeur JPEG ESP-IDF si disponible
-#include "esp_jpeg_common.h"
-#include "jpeg_encoder.h"
+//#include "esp_jpeg_common.h"
+//#include "jpeg_encoder.h"
 
 namespace esphome {
 namespace mipi_camera_web_server {
