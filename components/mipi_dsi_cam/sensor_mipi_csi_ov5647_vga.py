@@ -25,13 +25,13 @@ REGISTERS = {
     'pll_ctrl': 0x3037,
 }
 
-# Configuration VGA @ 90fps - ULTRA-RAPIDE
+# Configuration 800x480 @ ~60fps - Adaptée depuis VGA
 INIT_SEQUENCE = [
-    # === PHASE 1: Reset et PLL Optimisée pour Haute Vitesse ===
-    (0x0103, 0x01, 10),  # Software reset - WAIT 10ms APRÈS
+    # === PHASE 1: Reset et PLL ===
+    (0x0103, 0x01, 10),  # Software reset - WAIT 10ms
     (0x0100, 0x00, 0),   # Sleep mode OFF
     
-    # === PLL Configuration pour 90 FPS ===
+    # === PLL Configuration pour 800x480 ===
     (0x3035, 0x31, 0),   # System clock: bit[7:4]=0x3 (divider /3), bit[3:0]=0x1
     (0x3036, 0x78, 0),   # PLL multiplier: 0x78 = 120 (24MHz × 120 = 2880MHz)
     (0x3037, 0x03, 0),   # PLL control: prediv /3
@@ -41,9 +41,9 @@ INIT_SEQUENCE = [
     (0x3034, 0x18, 0),   # RAW8 mode
     (0x3106, 0xf5, 0),
     
-    # === Binning 2x2 pour VGA ===
-    (0x3821, 0x01, 0),   # Horizontal binning 2x2
-    (0x3820, 0x41, 0),   # Vertical binning 2x2
+    # === Binning/Scaling pour 800x480 ===
+    (0x3821, 0x01, 0),   # Horizontal binning
+    (0x3820, 0x41, 0),   # Vertical binning  
     (0x3827, 0xec, 0),
     (0x370c, 0x0f, 0),
     (0x3612, 0x59, 0),
@@ -73,31 +73,31 @@ INIT_SEQUENCE = [
     (0x3c00, 0x40, 0),
     (0x3b07, 0x0c, 0),
     
-    # === Timing - HTS/VTS pour 90fps ===
-    (0x380c, 0x07, 0),   # HTS H: 1896 pixels
+    # === Timing - HTS/VTS ajustés pour 800x480 ===
+    (0x380c, 0x07, 0),   # HTS H: 1896 pixels (conservé)
     (0x380d, 0x68, 0),   # HTS L
-    (0x380e, 0x01, 0),   # VTS H: 328 lines - TRÈS COURT pour 90fps !
-    (0x380f, 0x48, 0),   # VTS L
+    (0x380e, 0x02, 0),   # VTS H: 600 lines - AUGMENTÉ pour 60fps
+    (0x380f, 0x58, 0),   # VTS L
     
-    # === Subsample pour VGA (2x2) ===
+    # === Subsample ===
     (0x3814, 0x31, 0),
     (0x3815, 0x31, 0),
     (0x3708, 0x64, 0),
     (0x3709, 0x52, 0),
     
-    # === Window - VGA centré ===
+    # === Window - Zone de lecture pour 800x480 ===
     (0x3800, 0x01, 0),   # X start H
-    (0x3801, 0xf4, 0),   # X start L (500)
-    (0x3802, 0x00, 0),   # Y start H
-    (0x3803, 0xb4, 0),   # Y start L (180)
+    (0x3801, 0xf4, 0),   # X start L (500) - DÉCALAGE horizontal
+    (0x3802, 0x00, 0),   # Y start H  
+    (0x3803, 0x78, 0),   # Y start L (120) - DÉCALAGE vertical
     (0x3804, 0x08, 0),   # X end H
     (0x3805, 0x4b, 0),   # X end L (2123)
-    (0x3806, 0x04, 0),   # Y end H
-    (0x3807, 0x73, 0),   # Y end L (1139)
+    (0x3806, 0x05, 0),   # Y end H
+    (0x3807, 0x07, 0),   # Y end L (1287) - Zone + haute
     
-    # === Output size: 640x480 ===
-    (0x3808, 0x02, 0),   # Width H (0x280 = 640)
-    (0x3809, 0x80, 0),   # Width L
+    # === Output size: 800x480 === MODIFICATION CRITIQUE
+    (0x3808, 0x03, 0),   # Width H (0x320 = 800)
+    (0x3809, 0x20, 0),   # Width L
     (0x380a, 0x01, 0),   # Height H (0x1E0 = 480)
     (0x380b, 0xe0, 0),   # Height L
     
@@ -129,7 +129,7 @@ INIT_SEQUENCE = [
     (0x3f06, 0x10, 0),
     (0x3f01, 0x0a, 0),
     
-    # === AEC/AGC - Optimisé 90fps ===
+    # === AEC/AGC - Optimisé ===
     (0x3a08, 0x00, 0),
     (0x3a09, 0x3a, 0),
     (0x3a0a, 0x00, 0),
