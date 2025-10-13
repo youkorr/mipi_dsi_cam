@@ -8,7 +8,7 @@ SENSOR_INFO = {
     'lane_bitrate_mbps': 360,
     'width': 640,
     'height': 480,
-    'fps': 90,  # HAUTE VITESSE !
+    'fps': 60,  # HAUTE VITESSE !
 }
 
 REGISTERS = {
