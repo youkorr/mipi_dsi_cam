@@ -575,17 +575,17 @@ public:
             static_cast<uint8_t>(reg & 0xFF)
         }};
         
-        // Write SANS stop bit (repeated start condition)
-        auto err = i2c_->write(addr, 2, false);
+        // Écrire l'adresse du registre
+        auto err = i2c_->write(addr, 2);
         if (err != esphome::i2c::ERROR_OK) {{
-            ESP_LOGE(TAG, "Failed to write reg address 0x%04X, error: %d", reg, err);
+            ESP_LOGE(TAG, "Failed to write reg address 0x%04X", reg);
             return ESP_FAIL;
         }}
         
-        // Read AVEC stop bit automatique
+        // Lire la valeur
         err = i2c_->read(value, 1);
         if (err != esphome::i2c::ERROR_OK) {{
-            ESP_LOGE(TAG, "Failed to read reg 0x%04X, error: %d", reg, err);
+            ESP_LOGE(TAG, "Failed to read reg 0x%04X", reg);
             return ESP_FAIL;
         }}
         
