@@ -31,8 +31,8 @@ REGISTERS = {
 
 INIT_SEQUENCE = [
     # Reset et configuration de base
-    (0x0100, 0x00, 0),   # Stream off
-    (0x0103, 0x01, 10),  # Software reset, wait 10ms
+    #(0x0100, 0x00, 0),   # Stream off
+    #(0x0103, 0x01, 10),  # Software reset, wait 10ms
     
     # PLL Configuration
     (0x0301, 0x08, 0),   # PLL pre-divider
