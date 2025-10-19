@@ -27,9 +27,9 @@ void LVGLCameraDisplay::loop() {
   }
   
   // 🔧 Vérifier si nouvelle frame disponible (non-bloquant, atomique)
-  if (!this->camera_->has_new_frame()) {
-    return;  // Pas de nouvelle frame, ne rien faire
-  }
+  //if (!this->camera_->has_new_frame()) {
+    //return;  // Pas de nouvelle frame, ne rien faire
+  //}
   
   // 🆕 Capturer la frame (swap de buffer atomique)
   if (this->camera_->capture_frame()) {
